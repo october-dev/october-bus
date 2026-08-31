@@ -19,8 +19,7 @@ type CardOptions struct {
 	InterfaceURL string
 
 	// ProviderOrganization names the organization that publishes the agent.
-	// When set, the generated card includes a Provider block; ProviderURL
-	// may be set alongside it or independently.
+	// ProviderOrganization and ProviderURL must be set together.
 	ProviderOrganization string
 
 	// ProviderURL points at the provider's public website or relevant
@@ -43,6 +42,13 @@ func NewAgentCard(agent bus.Agent, options CardOptions) (*a2a.AgentCard, error) 
 	}
 	if err := validateInterfaceURL(options.InterfaceURL); err != nil {
 		return nil, err
+	}
+	providerOrganization := strings.TrimSpace(options.ProviderOrganization)
+	if options.ProviderOrganization != "" && providerOrganization == "" {
+		return nil, errors.New("providerOrganization must not be blank")
+	}
+	if (providerOrganization == "") != (options.ProviderURL == "") {
+		return nil, errors.New("providerOrganization and providerUrl must be set together")
 	}
 	for _, field := range []struct {
 		name, value string
@@ -99,9 +105,9 @@ func NewAgentCard(agent bus.Agent, options CardOptions) (*a2a.AgentCard, error) 
 			{bearerSchemeName: a2a.SecuritySchemeScopes{}},
 		},
 	}
-	if options.ProviderOrganization != "" || options.ProviderURL != "" {
+	if providerOrganization != "" {
 		card.Provider = &a2a.AgentProvider{
-			Org: options.ProviderOrganization,
+			Org: providerOrganization,
 			URL: options.ProviderURL,
 		}
 	}

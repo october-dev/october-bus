@@ -98,37 +98,37 @@ func TestAgentCardProviderFields(t *testing.T) {
 	}
 }
 
-func TestAgentCardProviderOrganizationAloneIsAllowed(t *testing.T) {
+func TestAgentCardRejectsProviderOrganizationWithoutURL(t *testing.T) {
 	agent := bus.Agent{DisplayName: "Reviewer"}
-	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
+	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "https://agents.example.com/reviewer",
 		ProviderOrganization: "Example Labs",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Provider == nil {
-		t.Fatal("Provider is nil, want populated with org-only")
-	}
-	if card.Provider.Org != "Example Labs" || card.Provider.URL != "" {
-		t.Errorf("Provider = %+v, want Org only", card.Provider)
+	if err == nil || !strings.Contains(err.Error(), "must be set together") {
+		t.Fatalf("expected incomplete-provider error, got %v", err)
 	}
 }
 
-func TestAgentCardProviderURLAloneIsAllowed(t *testing.T) {
+func TestAgentCardRejectsProviderURLWithoutOrganization(t *testing.T) {
 	agent := bus.Agent{DisplayName: "Reviewer"}
-	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
+	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 		ProviderURL:  "https://example.com",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "must be set together") {
+		t.Fatalf("expected incomplete-provider error, got %v", err)
 	}
-	if card.Provider == nil {
-		t.Fatal("Provider is nil, want populated with URL-only")
-	}
-	if card.Provider.URL != "https://example.com" || card.Provider.Org != "" {
-		t.Errorf("Provider = %+v, want URL only", card.Provider)
+}
+
+func TestAgentCardRejectsBlankProviderOrganization(t *testing.T) {
+	agent := bus.Agent{DisplayName: "Reviewer"}
+	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
+		InterfaceURL:         "https://agents.example.com/reviewer",
+		ProviderOrganization: "   ",
+		ProviderURL:          "https://example.com",
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not be blank") {
+		t.Fatalf("expected blank-organization error, got %v", err)
 	}
 }
 
@@ -202,8 +202,9 @@ func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
 		{
 			name: "provider-url-credentials",
 			options: a2abridge.CardOptions{
-				InterfaceURL: "https://agents.example.com/reviewer",
-				ProviderURL:  "https://user:placeholder@example.com",
+				InterfaceURL:         "https://agents.example.com/reviewer",
+				ProviderOrganization: "Example Labs",
+				ProviderURL:          "https://user:placeholder@example.com",
 			},
 			wantErr: "providerUrl",
 		},
@@ -234,8 +235,9 @@ func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
 		{
 			name: "provider-url-relative",
 			options: a2abridge.CardOptions{
-				InterfaceURL: "https://agents.example.com/reviewer",
-				ProviderURL:  "/relative/path",
+				InterfaceURL:         "https://agents.example.com/reviewer",
+				ProviderOrganization: "Example Labs",
+				ProviderURL:          "/relative/path",
 			},
 			wantErr: "providerUrl",
 		},
@@ -268,10 +270,11 @@ func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
 func TestAgentCardPublicURLsAllowPlainHTTP(t *testing.T) {
 	agent := bus.Agent{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL:     "http://127.0.0.1:8080/a2a",
-		DocumentationURL: "http://docs.internal/reviewer",
-		IconURL:          "http://cdn.internal/icon.png",
-		ProviderURL:      "http://example.com",
+		InterfaceURL:         "http://127.0.0.1:8080/a2a",
+		ProviderOrganization: "Example Labs",
+		ProviderURL:          "http://example.com",
+		DocumentationURL:     "http://docs.internal/reviewer",
+		IconURL:              "http://cdn.internal/icon.png",
 	})
 	if err != nil {
 		t.Fatalf("plain-http public URLs should be accepted, got %v", err)
