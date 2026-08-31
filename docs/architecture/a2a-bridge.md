@@ -29,6 +29,22 @@ SDK versions and A2A protocol versions are independent. The bridge records both.
 
 The initial package generates and serves read-only Agent Cards. It does not implement A2A message or task operations yet.
 
+### Handler caching and conditional requests
+
+The handler returned by `a2abridge.NewAgentCardHandler` defaults to a
+60-second `Cache-Control: public, max-age=60` policy with the current
+time as `Last-Modified`. Use `a2abridge.NewAgentCardHandlerWithOptions`
+to override either value via `HandlerOptions.CacheLifetime` and
+`HandlerOptions.LastModified`. The cache lifetime must be non-negative
+and at most 24 hours; the constructor rejects other values.
+
+The handler honours both `If-None-Match` (compared against the `ETag`)
+and `If-Modified-Since` (compared against `Last-Modified` at second
+precision), returning `304 Not Modified` when either matches. The three
+headers (`ETag`, `Cache-Control`, `Last-Modified`) are computed once at
+construction time and stay consistent for every request served by a
+given handler instance.
+
 ## Extensions
 
 Core A2A behavior is implemented before any October-specific extension. Extension identifiers are not published until their domain and lifecycle are established. Extension support will have separate conformance evidence from core A2A support.

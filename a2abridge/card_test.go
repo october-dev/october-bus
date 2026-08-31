@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
@@ -141,5 +142,162 @@ func TestAgentCardHandlerRejectsUnsupportedMethods(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, a2abridge.AgentCardPath, nil))
 	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
 		t.Fatalf("unexpected response: %d, %q", response.Code, response.Header().Get("Allow"))
+	}
+}
+
+// makeTestCard returns a small valid card used by the cache-policy tests
+// below. Each test calls it fresh so failures cannot bleed between cases.
+func makeTestCard(t *testing.T) *a2a.AgentCard {
+	t.Helper()
+	card, err := a2abridge.NewAgentCard(bus.Agent{DisplayName: "Reviewer"}, a2abridge.CardOptions{
+		InterfaceURL: "https://agents.example.com/reviewer",
+		Version:      "1.2.3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return card
+}
+
+func TestAgentCardHandlerHonoursCustomCacheLifetime(t *testing.T) {
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
+	if got := response.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
+	}
+}
+
+func TestAgentCardHandlerSupportsZeroCacheLifetime(t *testing.T) {
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
+	if got := response.Header().Get("Cache-Control"); got != "public, max-age=0" {
+		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=0")
+	}
+}
+
+func TestAgentCardHandlerRejectsNegativeCacheLifetime(t *testing.T) {
+	_, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: -time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not be negative") {
+		t.Fatalf("expected negative-lifetime rejection, got %v", err)
+	}
+}
+
+func TestAgentCardHandlerRejectsExcessiveCacheLifetime(t *testing.T) {
+	_, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: 48 * time.Hour,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds the maximum") {
+		t.Fatalf("expected excessive-lifetime rejection, got %v", err)
+	}
+}
+
+func TestAgentCardHandlerHonoursFixedLastModified(t *testing.T) {
+	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: time.Minute,
+		LastModified:  fixed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
+	wantLastModified := fixed.Format(http.TimeFormat)
+	if got := response.Header().Get("Last-Modified"); got != wantLastModified {
+		t.Errorf("Last-Modified = %q, want %q", got, wantLastModified)
+	}
+
+	// Conditional GET against a time matching the card should return 304.
+	conditional := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+	request.Header.Set("If-Modified-Since", wantLastModified)
+	handler.ServeHTTP(conditional, request)
+	if conditional.Code != http.StatusNotModified {
+		t.Errorf("If-Modified-Since match: status = %d, want %d", conditional.Code, http.StatusNotModified)
+	}
+}
+
+func TestAgentCardHandlerIfModifiedSinceMissReturnsFullResponse(t *testing.T) {
+	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: time.Minute,
+		LastModified:  fixed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The client claims to have a version older than the card's last update.
+	stale := fixed.Add(-time.Hour).Format(http.TimeFormat)
+	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+	request.Header.Set("If-Modified-Since", stale)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Errorf("stale If-Modified-Since: status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if response.Body.Len() == 0 {
+		t.Error("stale If-Modified-Since should return a body, got empty")
+	}
+}
+
+func TestAgentCardHandlerIfModifiedSinceInvalidDateTreatedAsMiss(t *testing.T) {
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+	request.Header.Set("If-Modified-Since", "not-a-valid-http-date")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Errorf("invalid If-Modified-Since: status = %d, want %d (full response)", response.Code, http.StatusOK)
+	}
+}
+
+func TestAgentCardHandlerCacheHeadersStayConsistent(t *testing.T) {
+	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: 30 * time.Second,
+		LastModified:  fixed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Issue several requests and confirm the trio (ETag, Cache-Control,
+	// Last-Modified) is byte-identical across them.
+	var firstETag, firstCacheControl, firstLastModified string
+	for i := 0; i < 5; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
+		if firstETag == "" {
+			firstETag = response.Header().Get("ETag")
+			firstCacheControl = response.Header().Get("Cache-Control")
+			firstLastModified = response.Header().Get("Last-Modified")
+			continue
+		}
+		if got := response.Header().Get("ETag"); got != firstETag {
+			t.Errorf("request %d: ETag drifted to %q (was %q)", i, got, firstETag)
+		}
+		if got := response.Header().Get("Cache-Control"); got != firstCacheControl {
+			t.Errorf("request %d: Cache-Control drifted to %q (was %q)", i, got, firstCacheControl)
+		}
+		if got := response.Header().Get("Last-Modified"); got != firstLastModified {
+			t.Errorf("request %d: Last-Modified drifted to %q (was %q)", i, got, firstLastModified)
+		}
 	}
 }
