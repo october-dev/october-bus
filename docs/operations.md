@@ -15,6 +15,24 @@ october-bus stop
 
 Use `october-bus doctor --json` for machine-readable diagnostics. It reports versions, paths, process state, and endpoint health. It does not print credentials or message content.
 
+## Inspect message delivery state
+
+Agents can inspect the durable delivery state of a message they sent or
+received without opening SQLite or writing a client program. The command
+requires the agent credential and never reveals message bodies or shared
+context — only the receipt.
+
+```bash
+october-bus message receipt <message-id> [--json] [--address <addr>]
+```
+
+The credential is read from `OCTOBER_BUS_AGENT_TOKEN`. The daemon address is
+resolved from `--address`, then the `OCTOBER_BUS_ADDRESS` environment
+variable, then the local run file. The output shows the current delivery
+state plus any timestamps that have been recorded (`accepted`, `delivered`,
+`acknowledged`, `replied`) and, when present, the linked response message
+ID. Use `--json` for a stable machine-readable form.
+
 ## Default paths
 
 | Platform | Data directory | Runtime directory |

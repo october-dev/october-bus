@@ -24,6 +24,7 @@ Usage:
   october-bus status
   october-bus doctor [--json]
   october-bus scope create [scope-id]
+  october-bus message receipt <message-id> [--json] [--address <addr>]
   october-bus agent run --id <id> --name <name> [--connect-to <peer>] -- <command> [args...]
   october-bus demo
   october-bus version
@@ -227,6 +228,100 @@ func createScope(id string) error {
 	return nil
 }
 
+// resolveBusAddress returns the daemon address to talk to for a CLI subcommand
+// that uses an agent credential. Precedence: explicit flag, then the
+// OCTOBER_BUS_ADDRESS environment variable, then the daemon run file.
+func resolveBusAddress(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if env := os.Getenv("OCTOBER_BUS_ADDRESS"); env != "" {
+		return env, nil
+	}
+	paths, err := bus.DefaultDaemonPaths()
+	if err != nil {
+		return "", err
+	}
+	run, err := bus.ReadRunFile(paths.RunFile)
+	if err != nil {
+		return "", err
+	}
+	return run.Address, nil
+}
+
+// inspectReceipt implements `october-bus message receipt <message-id>`.
+//
+// It reads the agent credential from OCTOBER_BUS_AGENT_TOKEN and fetches the
+// delivery receipt through the public client API. The receipt deliberately
+// exposes only delivery state and timestamps; message bodies and shared
+// context are never included.
+func inspectReceipt(args []string) error {
+	flags := flag.NewFlagSet("message receipt", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	positional := flags.Args()
+	if len(positional) != 1 {
+		return errors.New("message receipt requires a single <message-id> argument")
+	}
+	messageID := strings.TrimSpace(positional[0])
+	if messageID == "" {
+		return errors.New("message id must not be empty")
+	}
+	token := os.Getenv("OCTOBER_BUS_AGENT_TOKEN")
+	if token == "" {
+		return errors.New("OCTOBER_BUS_AGENT_TOKEN is required")
+	}
+	resolved, err := resolveBusAddress(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	receipt, err := (bus.Client{Address: resolved, Token: token}).Receipt(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("could not inspect message receipt: %w", err)
+	}
+	if *jsonOutput {
+		encoded, err := json.MarshalIndent(receipt, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(encoded))
+		return nil
+	}
+	return printReceiptHuman(receipt)
+}
+
+// printReceiptHuman renders a DeliveryReceipt as a stable, multi-line summary.
+// Only state, timestamps, and the linked response message ID are shown; the
+// receipt struct contains no body or shared-context fields, so this view
+// cannot leak message contents.
+func printReceiptHuman(receipt bus.DeliveryReceipt) error {
+	fmt.Printf("Message %s\n", receipt.MessageID)
+	fmt.Printf("State: %s\n", receipt.State)
+	for _, ts := range []struct {
+		label string
+		value string
+	}{
+		{"AcceptedAt", receipt.AcceptedAt},
+		{"DeliveredAt", receipt.DeliveredAt},
+		{"AcknowledgedAt", receipt.AcknowledgedAt},
+		{"RepliedAt", receipt.RepliedAt},
+	} {
+		if ts.value != "" {
+			fmt.Printf("%s: %s\n", ts.label, ts.value)
+		}
+	}
+	if receipt.ResponseMessageID != "" {
+		fmt.Printf("ResponseMessageID: %s\n", receipt.ResponseMessageID)
+	}
+	return nil
+}
+
 func setEnvironment(base []string, values ...string) []string {
 	replacements := map[string]bool{}
 	for i := 0; i < len(values); i += 2 {
@@ -388,6 +483,10 @@ func run() error {
 				id = args[2]
 			}
 			return createScope(id)
+		}
+	case "message":
+		if len(args) >= 2 && args[1] == "receipt" {
+			return inspectReceipt(args[2:])
 		}
 	case "agent":
 		if len(args) >= 2 && args[1] == "run" {

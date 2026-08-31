@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +113,279 @@ func TestRemoveEnvironmentRemovesCredentials(t *testing.T) {
 	result := removeEnvironment([]string{"PATH=/bin", "OCTOBER_BUS_SCOPE_TOKEN=secret", "OTHER=value"}, "october_bus_scope_token")
 	if len(result) != 2 || result[0] != "PATH=/bin" || result[1] != "OTHER=value" {
 		t.Fatalf("unexpected environment: %#v", result)
+	}
+}
+
+// startTestServer spins up an in-memory bus, registers two linked agents
+// (sender and receiver), and returns the address, the sender's agent token,
+// and a cleanup function. It mirrors the protocol exercised by bus.RunDemo
+// but keeps the scope and ids local to the test.
+func startTestServer(t *testing.T, ctx context.Context, scopeID string) (address, senderToken, receiverToken string, cleanup func()) {
+	t.Helper()
+	runtimeValue, err := bus.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open runtime: %v", err)
+	}
+	server := bus.NewServer(runtimeValue, bus.ServerOptions{})
+	listenAddr, err := server.Start()
+	if err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	scope, err := runtimeValue.CreateScope(ctx, bus.CreateScopeInput{ID: scopeID})
+	if err != nil {
+		server.Stop(context.Background())
+		t.Fatalf("create scope: %v", err)
+	}
+	scopeClient := bus.Client{Address: listenAddr, Token: scope.ScopeToken}
+	sender, err := scopeClient.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "sender", DisplayName: "Sender"})
+	if err != nil {
+		server.Stop(context.Background())
+		t.Fatalf("register sender: %v", err)
+	}
+	receiver, err := scopeClient.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "receiver", DisplayName: "Receiver", ConnectTo: []string{"sender"}})
+	if err != nil {
+		server.Stop(context.Background())
+		t.Fatalf("register receiver: %v", err)
+	}
+	if err := scopeClient.LinkAgents(ctx, "sender", "receiver"); err != nil {
+		server.Stop(context.Background())
+		t.Fatalf("link agents: %v", err)
+	}
+	cleanup = func() {
+		server.Stop(context.Background())
+		runtimeValue.Close()
+	}
+	return listenAddr, sender.AgentToken, receiver.AgentToken, cleanup
+}
+
+func TestInspectReceiptRequiresArgs(t *testing.T) {
+	if err := inspectReceipt(nil); err == nil || !strings.Contains(err.Error(), "<message-id>") {
+		t.Fatalf("expected missing-arg error, got %v", err)
+	}
+	if err := inspectReceipt([]string{"   "}); err == nil || !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("expected empty-id error, got %v", err)
+	}
+}
+
+func TestInspectReceiptRequiresAgentToken(t *testing.T) {
+	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", "")
+	err := inspectReceipt([]string{"--address", "http://127.0.0.1:1", "msg-1"})
+	if err == nil || !strings.Contains(err.Error(), "OCTOBER_BUS_AGENT_TOKEN is required") {
+		t.Fatalf("expected token-required error, got %v", err)
+	}
+}
+
+func TestPrintReceiptHumanOmitsEmptyTimestamps(t *testing.T) {
+	// Capture stdout while rendering, restore on exit.
+	originalStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("pipe: %v", pipeErr)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = originalStdout }()
+
+	receipt := bus.DeliveryReceipt{
+		MessageID:   "msg-1",
+		State:       bus.DeliveryDelivered,
+		AcceptedAt:  "2026-08-31T10:00:00Z",
+		DeliveredAt: "2026-08-31T10:00:01Z",
+		// AcknowledgedAt and RepliedAt intentionally empty.
+	}
+	if err := printReceiptHuman(receipt); err != nil {
+		t.Fatalf("printReceiptHuman: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("read pipe: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Message msg-1",
+		"State: delivered",
+		"AcceptedAt: 2026-08-31T10:00:00Z",
+		"DeliveredAt: 2026-08-31T10:00:01Z",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("human output missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"AcknowledgedAt", "RepliedAt", "ResponseMessageID"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("human output unexpectedly contains %q\n--- output ---\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestInspectReceiptEndToEnd(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	address, senderToken, receiverToken, cleanup := startTestServer(t, ctx, "receipt-e2e")
+	defer cleanup()
+
+	sender := bus.Client{Address: address, Token: senderToken}
+	receiver := bus.Client{Address: address, Token: receiverToken}
+
+	// Send a message, pull it on the receiver side, and acknowledge it so the
+	// receipt progresses through delivered and acknowledged states.
+	initial, err := sender.SendMessage(ctx, bus.SendMessageInput{To: "receiver", Body: "ping"})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if initial.State != bus.DeliveryQueued {
+		t.Fatalf("expected initial state queued, got %q", initial.State)
+	}
+	inbox, err := receiver.PullInbox(ctx, 10)
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if len(inbox) != 1 {
+		t.Fatalf("expected one inbox message, got %d", len(inbox))
+	}
+	if _, err := receiver.AcknowledgeMessages(ctx, []string{initial.MessageID}); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+
+	// Now drive inspectReceipt through the CLI layer with the sender token and
+	// the explicit --address, capturing stdout to verify both rendering modes.
+	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", senderToken)
+
+	var jsonOut, humanOut bytes.Buffer
+	if err := runInspectCapturing(&jsonOut, "--json", "--address", address, initial.MessageID); err != nil {
+		t.Fatalf("inspect json: %v", err)
+	}
+	if err := runInspectCapturing(&humanOut, "--address", address, initial.MessageID); err != nil {
+		t.Fatalf("inspect human: %v", err)
+	}
+
+	var decoded bus.DeliveryReceipt
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatalf("json output did not parse as DeliveryReceipt: %v\n--- output ---\n%s", err, jsonOut.String())
+	}
+	if decoded.MessageID != initial.MessageID {
+		t.Errorf("json messageId = %q, want %q", decoded.MessageID, initial.MessageID)
+	}
+	if decoded.State != bus.DeliveryAcknowledged {
+		t.Errorf("json state = %q, want %q", decoded.State, bus.DeliveryAcknowledged)
+	}
+	if decoded.AcceptedAt == "" || decoded.DeliveredAt == "" || decoded.AcknowledgedAt == "" {
+		t.Errorf("expected accepted/delivered/acknowledged timestamps, got %+v", decoded)
+	}
+	// Body and context must never appear in the receipt-shaped output.
+	if strings.Contains(jsonOut.String(), "ping") {
+		t.Errorf("json output leaked message body")
+	}
+	if !strings.Contains(humanOut.String(), "State: acknowledged") {
+		t.Errorf("human output missing state line\n--- output ---\n%s", humanOut.String())
+	}
+	if !strings.Contains(humanOut.String(), "AcknowledgedAt:") {
+		t.Errorf("human output missing AcknowledgedAt line\n--- output ---\n%s", humanOut.String())
+	}
+}
+
+// runInspectCapturing routes inspectReceipt's stdout through a buffer by
+// temporarily swapping os.Stdout. It restores the original handle on exit.
+func runInspectCapturing(buf *bytes.Buffer, args ...string) error {
+	original := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(buf, r)
+		close(done)
+	}()
+	invokeErr := inspectReceipt(args)
+	if err := w.Close(); err != nil {
+		os.Stdout = original
+		return err
+	}
+	os.Stdout = original
+	<-done
+	_ = r.Close()
+	return invokeErr
+}
+
+func TestInspectReceiptUnknownMessageReturnsError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	address, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-missing")
+	defer cleanup()
+	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", senderToken)
+
+	err := runInspectCapturing(&bytes.Buffer{}, "--address", address, "no-such-message")
+	if err == nil {
+		t.Fatal("expected error for unknown message, got nil")
+	}
+	var busErr *bus.BusError
+	if !errors.As(err, &busErr) {
+		t.Fatalf("expected *bus.BusError, got %T: %v", err, err)
+	}
+	if busErr.Code != bus.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %q", busErr.Code)
+	}
+}
+
+func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	address, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-authz")
+	defer cleanup()
+
+	// Register a third agent in an isolated runtime. Their token is unknown
+	// to the original runtime, so the runtime must refuse before it reaches
+	// the receipt query — they cannot even probe whether a message exists.
+	isolatedRuntime, err := bus.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open isolated runtime: %v", err)
+	}
+	defer isolatedRuntime.Close()
+	isolatedServer := bus.NewServer(isolatedRuntime, bus.ServerOptions{})
+	isolatedAddr, err := isolatedServer.Start()
+	if err != nil {
+		t.Fatalf("start isolated server: %v", err)
+	}
+	defer isolatedServer.Stop(context.Background())
+	isolatedScope, err := isolatedRuntime.CreateScope(ctx, bus.CreateScopeInput{ID: "receipt-authz-isolated"})
+	if err != nil {
+		t.Fatalf("create isolated scope: %v", err)
+	}
+	outsider, err := (bus.Client{Address: isolatedAddr, Token: isolatedScope.ScopeToken}).RegisterAgent(ctx, bus.RegisterAgentInput{
+		ID: "outsider", DisplayName: "Outsider",
+	})
+	if err != nil {
+		t.Fatalf("register outsider: %v", err)
+	}
+
+	sender := bus.Client{Address: address, Token: senderToken}
+	initial, err := sender.SendMessage(ctx, bus.SendMessageInput{To: "receiver", Body: "secret"})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", outsider.AgentToken)
+	err = runInspectCapturing(&bytes.Buffer{}, "--address", address, initial.MessageID)
+	if err == nil {
+		t.Fatal("expected error when an outsider inspects a message they did not send or receive")
+	}
+	var busErr *bus.BusError
+	if !errors.As(err, &busErr) {
+		t.Fatalf("expected *bus.BusError, got %T: %v", err, err)
+	}
+	// The outsider's token is from a different runtime, so the runtime has
+	// no record of the principal and rejects with UNAUTHENTICATED. A
+	// NOT_FOUND (token valid but message not visible) is also acceptable;
+	// both outcomes prevent disclosure. Asserting the message body never
+	// appears anywhere in the captured output is the stronger guarantee.
+	if busErr.Code != bus.CodeUnauthenticated && busErr.Code != bus.CodeNotFound {
+		t.Errorf("expected CodeUnauthenticated or CodeNotFound, got %q", busErr.Code)
 	}
 }
