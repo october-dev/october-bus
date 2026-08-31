@@ -372,3 +372,143 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 		t.Error("receipt inspection leaked the message body")
 	}
 }
+
+func TestListAgentsRequiresScopeToken(t *testing.T) {
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", "")
+	err := listAgents([]string{"--address", "http://127.0.0.1:1"})
+	if err == nil || !strings.Contains(err.Error(), "OCTOBER_BUS_SCOPE_TOKEN is required") {
+		t.Fatalf("expected token-required error, got %v", err)
+	}
+}
+
+func TestListAgentsRejectsPositionalArguments(t *testing.T) {
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", "unused")
+	err := listAgents([]string{"extra"})
+	if err == nil || !strings.Contains(err.Error(), "does not accept positional arguments") {
+		t.Fatalf("expected positional-argument error, got %v", err)
+	}
+}
+
+func TestPrintAgentsHumanQuotesUntrustedDisplayNames(t *testing.T) {
+	agents := []bus.Agent{{
+		ID:          "reviewer",
+		DisplayName: "Reviewer\n\x1b[31mForged",
+		Lifecycle:   bus.LifecycleReady,
+		Ready:       true,
+		Reachable:   true,
+		Capabilities: []bus.AgentCapability{
+			{Name: "review"},
+		},
+		UpdatedAt: "2026-08-31T10:00:00Z",
+	}}
+	var output bytes.Buffer
+	if err := captureStdout(&output, func() error { return printAgentsHuman(agents) }); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, want := range []string{
+		`reviewer ("Reviewer\n\x1b[31mForged")`,
+		"lifecycle:  ready",
+		"ready:      yes",
+		"reachable:  yes",
+		"capabilities: review",
+		"updatedAt:  2026-08-31T10:00:00Z",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("human output missing %q\n--- output ---\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "\x1b") {
+		t.Error("human output contains a terminal escape character")
+	}
+}
+
+func TestPrintAgentsHumanEmptyScope(t *testing.T) {
+	var output bytes.Buffer
+	if err := captureStdout(&output, func() error { return printAgentsHuman(nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "No agents in scope.\n" {
+		t.Fatalf("unexpected empty-scope output: %q", output.String())
+	}
+}
+
+func TestListAgentsEndToEnd(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	address, scopeToken, _, _, cleanup := startTestServer(t, ctx, "agent-list-e2e")
+	defer cleanup()
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scopeToken)
+
+	var jsonOutput, humanOutput bytes.Buffer
+	if err := runListAgentsCapturing(&jsonOutput, "--json", "--address", address); err != nil {
+		t.Fatalf("list JSON: %v", err)
+	}
+	if err := runListAgentsCapturing(&humanOutput, "--address", address); err != nil {
+		t.Fatalf("list human: %v", err)
+	}
+
+	var agents []bus.Agent
+	if err := json.Unmarshal(jsonOutput.Bytes(), &agents); err != nil {
+		t.Fatalf("decode JSON output: %v", err)
+	}
+	if len(agents) != 2 || agents[0].ID != "receiver" || agents[1].ID != "sender" {
+		t.Fatalf("agents are not sorted by id: %+v", agents)
+	}
+	receiverIndex := strings.Index(humanOutput.String(), "receiver (")
+	senderIndex := strings.Index(humanOutput.String(), "sender (")
+	if receiverIndex < 0 || senderIndex < 0 || receiverIndex > senderIndex {
+		t.Fatalf("human output is not sorted by id:\n%s", humanOutput.String())
+	}
+	if strings.Contains(jsonOutput.String(), scopeToken) || strings.Contains(humanOutput.String(), scopeToken) {
+		t.Fatal("agent list output leaked the scope token")
+	}
+}
+
+func TestListAgentsRejectsInvalidOrAgentCredential(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	address, _, senderToken, _, cleanup := startTestServer(t, ctx, "agent-list-auth")
+	defer cleanup()
+
+	for name, token := range map[string]string{
+		"invalid":     "not-a-real-token",
+		"agent-token": senderToken,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", token)
+			err := runListAgentsCapturing(&bytes.Buffer{}, "--address", address)
+			var busErr *bus.BusError
+			if !errors.As(err, &busErr) || busErr.Code != bus.CodeUnauthenticated {
+				t.Fatalf("expected CodeUnauthenticated, got %v", err)
+			}
+		})
+	}
+}
+
+func runListAgentsCapturing(output *bytes.Buffer, args ...string) error {
+	return captureStdout(output, func() error { return listAgents(args) })
+}
+
+func captureStdout(output *bytes.Buffer, run func() error) error {
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	os.Stdout = writer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(output, reader)
+		close(done)
+	}()
+	runErr := run()
+	closeErr := writer.Close()
+	os.Stdout = original
+	<-done
+	_ = reader.Close()
+	if runErr != nil {
+		return runErr
+	}
+	return closeErr
+}

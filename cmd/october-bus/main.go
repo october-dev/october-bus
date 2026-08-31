@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ Usage:
   october-bus doctor [--json]
   october-bus scope create [scope-id]
   october-bus message receipt <message-id> [--json] [--address <addr>]
+  october-bus agent list [--json] [--address <addr>]
   october-bus agent run --id <id> --name <name> [--connect-to <peer>] -- <command> [args...]
   october-bus demo
   october-bus version
@@ -347,6 +349,81 @@ func printReceiptHuman(receipt bus.DeliveryReceipt) error {
 	return nil
 }
 
+// listAgents implements `october-bus agent list [--json] [--address <addr>]`.
+// It reads the scope credential from OCTOBER_BUS_SCOPE_TOKEN and returns only
+// the agent metadata visible to that scope.
+func listAgents(args []string) error {
+	flags := flag.NewFlagSet("agent list", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("agent list does not accept positional arguments")
+	}
+	token := os.Getenv("OCTOBER_BUS_SCOPE_TOKEN")
+	if token == "" {
+		return errors.New("OCTOBER_BUS_SCOPE_TOKEN is required")
+	}
+	resolved, err := resolveBusAddress(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	agents, err := (bus.Client{Address: resolved, Token: token}).ListAgents(ctx)
+	if err != nil {
+		return fmt.Errorf("could not list agents: %w", err)
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	if *jsonOutput {
+		encoded, err := json.MarshalIndent(agents, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(encoded))
+		return nil
+	}
+	return printAgentsHuman(agents)
+}
+
+// printAgentsHuman renders a stable summary. Display names are quoted because
+// they are user-controlled text and may contain terminal control characters.
+func printAgentsHuman(agents []bus.Agent) error {
+	if len(agents) == 0 {
+		fmt.Println("No agents in scope.")
+		return nil
+	}
+	for _, agent := range agents {
+		fmt.Printf("%s (%q)\n", agent.ID, agent.DisplayName)
+		fmt.Printf("  lifecycle:  %s\n", agent.Lifecycle)
+		fmt.Printf("  ready:      %s\n", yesNo(agent.Ready))
+		fmt.Printf("  reachable:  %s\n", yesNo(agent.Reachable))
+		if len(agent.Capabilities) == 0 {
+			fmt.Println("  capabilities: (none)")
+		} else {
+			names := make([]string, 0, len(agent.Capabilities))
+			for _, capability := range agent.Capabilities {
+				names = append(names, capability.Name)
+			}
+			fmt.Printf("  capabilities: %s\n", strings.Join(names, ", "))
+		}
+		if agent.UpdatedAt != "" {
+			fmt.Printf("  updatedAt:  %s\n", agent.UpdatedAt)
+		}
+	}
+	return nil
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
 func setEnvironment(base []string, values ...string) []string {
 	replacements := map[string]bool{}
 	for i := 0; i < len(values); i += 2 {
@@ -516,6 +593,9 @@ func run() error {
 	case "agent":
 		if len(args) >= 2 && args[1] == "run" {
 			return runAgent(args[2:])
+		}
+		if len(args) >= 2 && args[1] == "list" {
+			return listAgents(args[2:])
 		}
 	case "demo":
 		return bus.RunDemo(context.Background())

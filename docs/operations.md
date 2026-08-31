@@ -33,6 +33,22 @@ state plus any timestamps that have been recorded (`accepted`, `delivered`,
 `acknowledged`, `replied`) and, when present, the linked response message
 ID. Use `--json` for a stable machine-readable form.
 
+## Inspect scope agents
+
+A scope owner can list the agents registered in a collaboration scope without
+calling the HTTP API directly. The command exposes agent metadata only. It does
+not expose credentials or message contents.
+
+```bash
+october-bus agent list [--json] [--address <addr>]
+```
+
+The credential is read from `OCTOBER_BUS_SCOPE_TOKEN`. The daemon address is
+resolved from `--address`, then `OCTOBER_BUS_ADDRESS`, then the local run file.
+The output includes each agent's id, display name, lifecycle, readiness,
+reachability, capabilities, and last update time. Results are sorted by agent
+id. Use `--json` for machine-readable output.
+
 ## Default paths
 
 | Platform | Data directory | Runtime directory |
