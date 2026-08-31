@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -111,12 +112,12 @@ func NewAgentCardHandlerWithOptions(card *a2a.AgentCard, options HandlerOptions)
 	}), nil
 }
 
-// requestMatchesCache returns true when the request carries either an
-// If-None-Match value equal to etag or an If-Modified-Since value equal to
-// or later than lastModified.
+// requestMatchesCache evaluates If-None-Match before If-Modified-Since, as
+// required by HTTP. If-Modified-Since is ignored whenever If-None-Match is
+// present, including when none of its entity tags match.
 func requestMatchesCache(request *http.Request, etag string, lastModified time.Time) bool {
-	if header := request.Header.Get("If-None-Match"); header != "" && header == etag {
-		return true
+	if values := request.Header.Values("If-None-Match"); len(values) > 0 {
+		return ifNoneMatchMatches(values, etag)
 	}
 	header := request.Header.Get("If-Modified-Since")
 	if header == "" {
@@ -134,4 +135,23 @@ func requestMatchesCache(request *http.Request, etag string, lastModified time.T
 	// is earlier than or equal to the client-supplied date — that is, when
 	// the client's copy is at least as new as the resource.
 	return !since.Truncate(time.Second).Before(lastModified.Truncate(time.Second))
+}
+
+// ifNoneMatchMatches uses weak entity-tag comparison for GET and HEAD cache
+// validation. It accepts multiple header lines, comma-separated lists, weak
+// tags, and the wildcard form.
+func ifNoneMatchMatches(values []string, etag string) bool {
+	target := strings.TrimPrefix(strings.TrimSpace(etag), "W/")
+	for _, value := range values {
+		for _, candidate := range strings.Split(value, ",") {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "*" {
+				return true
+			}
+			if strings.TrimPrefix(candidate, "W/") == target {
+				return true
+			}
+		}
+	}
+	return false
 }

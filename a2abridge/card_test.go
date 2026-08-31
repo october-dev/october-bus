@@ -269,6 +269,50 @@ func TestAgentCardHandlerIfModifiedSinceInvalidDateTreatedAsMiss(t *testing.T) {
 	}
 }
 
+func TestAgentCardHandlerIfNoneMatchPrecedesIfModifiedSince(t *testing.T) {
+	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: time.Minute,
+		LastModified:  fixed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+	request.Header.Set("If-None-Match", `"different"`)
+	request.Header.Set("If-Modified-Since", fixed.Format(http.TimeFormat))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("non-matching If-None-Match must ignore matching date: status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestAgentCardHandlerSupportsStandardIfNoneMatchForms(t *testing.T) {
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := httptest.NewRecorder()
+	handler.ServeHTTP(initial, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
+	etag := initial.Header().Get("ETag")
+	for name, value := range map[string]string{
+		"weak":     "W/" + etag,
+		"list":     `"different", ` + etag,
+		"wildcard": "*",
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+			request.Header.Set("If-None-Match", value)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusNotModified {
+				t.Fatalf("If-None-Match %q: status = %d, want %d", value, response.Code, http.StatusNotModified)
+			}
+		})
+	}
+}
+
 func TestAgentCardHandlerCacheHeadersStayConsistent(t *testing.T) {
 	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
 	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{

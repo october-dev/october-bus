@@ -38,12 +38,11 @@ to override either value via `HandlerOptions.CacheLifetime` and
 `HandlerOptions.LastModified`. The cache lifetime must be non-negative
 and at most 24 hours; the constructor rejects other values.
 
-The handler honours both `If-None-Match` (compared against the `ETag`)
-and `If-Modified-Since` (compared against `Last-Modified` at second
-precision), returning `304 Not Modified` when either matches. The three
-headers (`ETag`, `Cache-Control`, `Last-Modified`) are computed once at
-construction time and stay consistent for every request served by a
-given handler instance.
+The handler honours both `If-None-Match` and `If-Modified-Since`. It supports
+weak tags, tag lists, and wildcard cache validation. `If-None-Match` takes
+precedence when both headers are present. The `ETag`, `Cache-Control`, and
+`Last-Modified` headers are computed once and remain consistent for every
+request served by a handler instance.
 
 ## Extensions
 
