@@ -117,10 +117,10 @@ func TestRemoveEnvironmentRemovesCredentials(t *testing.T) {
 }
 
 // startTestServer spins up an in-memory bus, registers two linked agents
-// (sender and receiver), and returns the address, the sender's agent token,
-// and a cleanup function. It mirrors the protocol exercised by bus.RunDemo
-// but keeps the scope and ids local to the test.
-func startTestServer(t *testing.T, ctx context.Context, scopeID string) (address, senderToken, receiverToken string, cleanup func()) {
+// (sender and receiver), and returns the address, scope token, both agent
+// tokens, and a cleanup function. It mirrors the protocol exercised by
+// bus.RunDemo but keeps the scope and ids local to the test.
+func startTestServer(t *testing.T, ctx context.Context, scopeID string) (address, scopeToken, senderToken, receiverToken string, cleanup func()) {
 	t.Helper()
 	runtimeValue, err := bus.Open(":memory:")
 	if err != nil {
@@ -155,7 +155,7 @@ func startTestServer(t *testing.T, ctx context.Context, scopeID string) (address
 		server.Stop(context.Background())
 		runtimeValue.Close()
 	}
-	return listenAddr, sender.AgentToken, receiver.AgentToken, cleanup
+	return listenAddr, scope.ScopeToken, sender.AgentToken, receiver.AgentToken, cleanup
 }
 
 func TestInspectReceiptRequiresArgs(t *testing.T) {
@@ -224,7 +224,7 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	address, senderToken, receiverToken, cleanup := startTestServer(t, ctx, "receipt-e2e")
+	address, _, senderToken, receiverToken, cleanup := startTestServer(t, ctx, "receipt-e2e")
 	defer cleanup()
 
 	sender := bus.Client{Address: address, Token: senderToken}
@@ -255,7 +255,7 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", senderToken)
 
 	var jsonOut, humanOut bytes.Buffer
-	if err := runInspectCapturing(&jsonOut, "--json", "--address", address, initial.MessageID); err != nil {
+	if err := runInspectCapturing(&jsonOut, initial.MessageID, "--json", "--address", address); err != nil {
 		t.Fatalf("inspect json: %v", err)
 	}
 	if err := runInspectCapturing(&humanOut, "--address", address, initial.MessageID); err != nil {
@@ -316,7 +316,7 @@ func TestInspectReceiptUnknownMessageReturnsError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	address, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-missing")
+	address, _, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-missing")
 	defer cleanup()
 	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", senderToken)
 
@@ -337,28 +337,12 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	address, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-authz")
+	address, scopeToken, senderToken, _, cleanup := startTestServer(t, ctx, "receipt-authz")
 	defer cleanup()
 
-	// Register a third agent in an isolated runtime. Their token is unknown
-	// to the original runtime, so the runtime must refuse before it reaches
-	// the receipt query — they cannot even probe whether a message exists.
-	isolatedRuntime, err := bus.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open isolated runtime: %v", err)
-	}
-	defer isolatedRuntime.Close()
-	isolatedServer := bus.NewServer(isolatedRuntime, bus.ServerOptions{})
-	isolatedAddr, err := isolatedServer.Start()
-	if err != nil {
-		t.Fatalf("start isolated server: %v", err)
-	}
-	defer isolatedServer.Stop(context.Background())
-	isolatedScope, err := isolatedRuntime.CreateScope(ctx, bus.CreateScopeInput{ID: "receipt-authz-isolated"})
-	if err != nil {
-		t.Fatalf("create isolated scope: %v", err)
-	}
-	outsider, err := (bus.Client{Address: isolatedAddr, Token: isolatedScope.ScopeToken}).RegisterAgent(ctx, bus.RegisterAgentInput{
+	// Register a third agent in the same scope. Its valid credential proves
+	// receipt authorization is enforced independently of authentication.
+	outsider, err := (bus.Client{Address: address, Token: scopeToken}).RegisterAgent(ctx, bus.RegisterAgentInput{
 		ID: "outsider", DisplayName: "Outsider",
 	})
 	if err != nil {
@@ -372,7 +356,8 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 	}
 
 	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", outsider.AgentToken)
-	err = runInspectCapturing(&bytes.Buffer{}, "--address", address, initial.MessageID)
+	var output bytes.Buffer
+	err = runInspectCapturing(&output, "--address", address, initial.MessageID)
 	if err == nil {
 		t.Fatal("expected error when an outsider inspects a message they did not send or receive")
 	}
@@ -380,12 +365,10 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 	if !errors.As(err, &busErr) {
 		t.Fatalf("expected *bus.BusError, got %T: %v", err, err)
 	}
-	// The outsider's token is from a different runtime, so the runtime has
-	// no record of the principal and rejects with UNAUTHENTICATED. A
-	// NOT_FOUND (token valid but message not visible) is also acceptable;
-	// both outcomes prevent disclosure. Asserting the message body never
-	// appears anywhere in the captured output is the stronger guarantee.
-	if busErr.Code != bus.CodeUnauthenticated && busErr.Code != bus.CodeNotFound {
-		t.Errorf("expected CodeUnauthenticated or CodeNotFound, got %q", busErr.Code)
+	if busErr.Code != bus.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %q", busErr.Code)
+	}
+	if strings.Contains(output.String(), "secret") {
+		t.Error("receipt inspection leaked the message body")
 	}
 }

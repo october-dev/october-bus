@@ -260,7 +260,7 @@ func inspectReceipt(args []string) error {
 	flags.SetOutput(os.Stderr)
 	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
 	address := flags.String("address", "", "October Bus address")
-	if err := flags.Parse(args); err != nil {
+	if err := flags.Parse(receiptFlagArgs(args)); err != nil {
 		return err
 	}
 	positional := flags.Args()
@@ -294,6 +294,31 @@ func inspectReceipt(args []string) error {
 		return nil
 	}
 	return printReceiptHuman(receipt)
+}
+
+// receiptFlagArgs moves supported flags before the message id so the command
+// accepts flags on either side of its single positional argument. The standard
+// flag package otherwise stops parsing at the first positional argument.
+func receiptFlagArgs(args []string) []string {
+	flags := make([]string, 0, len(args))
+	positional := make([]string, 0, 1)
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == "--" {
+			positional = append(positional, args[index+1:]...)
+			break
+		}
+		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			positional = append(positional, argument)
+			continue
+		}
+		flags = append(flags, argument)
+		if (argument == "-address" || argument == "--address") && index+1 < len(args) {
+			index++
+			flags = append(flags, args[index])
+		}
+	}
+	return append(flags, positional...)
 }
 
 // printReceiptHuman renders a DeliveryReceipt as a stable, multi-line summary.
