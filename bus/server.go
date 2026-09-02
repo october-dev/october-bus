@@ -280,9 +280,12 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 			result, err := s.runtime.CompleteTask(ctx, token, input.TaskID, input.Note)
 			return nil, result, err
 		})
+	type listTasksInput struct {
+		Ready bool `json:"ready,omitempty"`
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: "list_tasks", Description: "List shared tasks and dependency state."},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-			result, err := s.runtime.ListTasks(ctx, token)
+		func(ctx context.Context, _ *mcp.CallToolRequest, input listTasksInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.ListTasks(ctx, token, input.Ready)
 			return nil, map[string]any{"tasks": result}, err
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: "Request human input or permission."},

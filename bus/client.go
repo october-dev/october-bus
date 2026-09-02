@@ -162,8 +162,12 @@ func (c Client) AddTask(ctx context.Context, input AddTaskInput) (Task, error) {
 	return request[Task](ctx, c, http.MethodPost, "/v1/tasks", input)
 }
 
-func (c Client) ListTasks(ctx context.Context) ([]Task, error) {
-	return request[[]Task](ctx, c, http.MethodGet, "/v1/tasks", nil)
+func (c Client) ListTasks(ctx context.Context, readyOnly bool) ([]Task, error) {
+	path := "/v1/tasks"
+	if readyOnly {
+		path += "?ready=true"
+	}
+	return request[[]Task](ctx, c, http.MethodGet, path, nil)
 }
 
 func (c Client) ClaimTask(ctx context.Context, taskID string) (Task, error) {

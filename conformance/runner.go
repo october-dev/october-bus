@@ -285,11 +285,11 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	var firstTask, blockedTask bus.Task
 	if err := record.check("task-dependencies-release-and-completion", func() error {
 		var err error
-		firstTask, err = planner.AddTask(ctx, bus.AddTaskInput{Description: "Review"})
+		firstTask, err = planner.AddTask(ctx, bus.AddTaskInput{Title: "Review"})
 		if err != nil {
 			return err
 		}
-		blockedTask, err = planner.AddTask(ctx, bus.AddTaskInput{Description: "Apply", Dependencies: []string{firstTask.ID}})
+		blockedTask, err = planner.AddTask(ctx, bus.AddTaskInput{Title: "Apply", Dependencies: []string{firstTask.ID}})
 		if err != nil {
 			return err
 		}
@@ -322,7 +322,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	}
 
 	if err := record.check("execution-replacement-and-stale-claim-recovery", func() error {
-		task, err := planner.AddTask(ctx, bus.AddTaskInput{Description: "Recover claim"})
+		task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Recover claim"})
 		if err != nil {
 			return err
 		}
@@ -333,7 +333,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		if err != nil {
 			return err
 		}
-		_, err = reviewer.ListTasks(ctx)
+		_, err = reviewer.ListTasks(ctx, false)
 		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
 			return err
 		}

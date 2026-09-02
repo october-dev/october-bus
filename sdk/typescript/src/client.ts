@@ -3,6 +3,7 @@ import type { BusErrorCode } from './errors.js'
 import type {
   Agent,
   AgentLifecycle,
+  AddTaskInput,
   AskHumanInput,
   BusHealth,
   BusMessage,
@@ -34,6 +35,10 @@ export interface OperationOptions {
 
 export interface InboxReservationOptions extends OperationOptions {
   waitMs?: number
+}
+
+export interface ListTasksOptions extends OperationOptions {
+  ready?: boolean
 }
 
 async function request<T>(
@@ -143,6 +148,16 @@ export class OctoberBusScopeClient {
     await request(this.address, this.scopeToken, 'POST', '/v1/links', { left, right }, options)
   }
 
+  addTask(input: AddTaskInput, options?: OperationOptions): Promise<BusTask> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/tasks', input, options)
+  }
+
+  listTasks(options: ListTasksOptions = {}): Promise<BusTask[]> {
+    const { ready, ...operationOptions } = options
+    const query = ready ? '?ready=true' : ''
+    return request(this.address, this.scopeToken, 'GET', `/v1/tasks${query}`, undefined, operationOptions)
+  }
+
   listEscalations(options?: OperationOptions): Promise<HumanEscalation[]> {
     return request(this.address, this.scopeToken, 'GET', '/v1/scope/escalations', undefined, options)
   }
@@ -231,12 +246,14 @@ export class OctoberBusClient {
     return result.acknowledged
   }
 
-  addTask(description: string, dependencies: string[] = [], options?: OperationOptions): Promise<BusTask> {
-    return request(this.address, this.agentToken, 'POST', '/v1/tasks', { description, dependencies }, options)
+  addTask(input: AddTaskInput, options?: OperationOptions): Promise<BusTask> {
+    return request(this.address, this.agentToken, 'POST', '/v1/tasks', input, options)
   }
 
-  listTasks(options?: OperationOptions): Promise<BusTask[]> {
-    return request(this.address, this.agentToken, 'GET', '/v1/tasks', undefined, options)
+  listTasks(options: ListTasksOptions = {}): Promise<BusTask[]> {
+    const { ready, ...operationOptions } = options
+    const query = ready ? '?ready=true' : ''
+    return request(this.address, this.agentToken, 'GET', `/v1/tasks${query}`, undefined, operationOptions)
   }
 
   claimTask(taskId: string, options?: OperationOptions): Promise<BusTask> {

@@ -57,7 +57,7 @@ func RunDemo(ctx context.Context) error {
 		return err
 	}
 	fmt.Printf("request accepted: %s\n", receipt.MessageID)
-	task, err := planner.AddTask(ctx, AddTaskInput{Description: "Review checkout retry path"})
+	task, err := planner.AddTask(ctx, AddTaskInput{Title: "Review checkout retry path"})
 	if err != nil {
 		return err
 	}

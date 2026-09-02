@@ -50,8 +50,8 @@ Failures use:
 | `POST` | `/v1/inbox/reserve` | Agent | Reservation or `null` |
 | `POST` | `/v1/inbox/{reservationId}/commit` | Reserving agent | Delivered messages |
 | `POST` | `/v1/inbox/{reservationId}/release` | Reserving agent | Release confirmation |
-| `POST` | `/v1/tasks` | Agent | New task |
-| `GET` | `/v1/tasks` | Agent | Tasks in the scope |
+| `POST` | `/v1/tasks` | Scope or agent | New task |
+| `GET` | `/v1/tasks` | Scope or agent | Tasks in the scope |
 | `POST` | `/v1/tasks/{taskId}/claim` | Agent | Claimed task |
 | `POST` | `/v1/tasks/{taskId}/release` | Claiming execution | Open task |
 | `POST` | `/v1/tasks/{taskId}/complete` | Claiming execution | Completed task |
@@ -62,6 +62,8 @@ Failures use:
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
+
+`GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

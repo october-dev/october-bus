@@ -20,7 +20,7 @@ scope
 
 A scope is one collaboration boundary. Agents, peer links, messages, tasks, and escalations never cross scopes.
 
-A scope token MAY register agents, list all agents, create peer links, and resolve human escalations. It MUST NOT be given to an agent process when an execution-bound agent token is sufficient.
+A scope token MAY register agents, list all agents, create peer links, add and list shared tasks, and resolve human escalations. It MUST NOT be given to an agent process when an execution-bound agent token is sufficient.
 
 ### Agent and execution
 
@@ -112,7 +112,9 @@ A context item is a description or explicit payload. It does not grant access to
 
 ## Shared tasks
 
-A task is `open`, `claimed`, or `done`. It MAY depend on existing tasks in the same scope.
+A task has a short title and an optional description. It is `open`, `claimed`, or `done`, and MAY depend on existing tasks in the same scope. Scope authority and agents can add and list tasks. A task created by scope authority has a null `createdBy` value.
+
+An open task is ready when it is unclaimed and every dependency is done. Clients MAY request only ready work when listing tasks.
 
 An agent can claim an open task only after every dependency is done. A claim belongs to the current execution, not only the logical agent. Only that execution can release or complete it.
 
@@ -131,7 +133,7 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, list and resolve escalations |
+| Scope token | Register and list agents, create peer links, add and list tasks, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.

@@ -145,6 +145,17 @@ go run ./cmd/october-bus scope create my-project
 
 The command returns a scope token. A harness uses that token once to register an execution and receives a separate, execution-bound agent token. The TypeScript client lives in `sdk/typescript`. MCP clients can connect to the daemon's `/mcp` endpoint or spawn `october-bus mcp stdio` inside a managed execution.
 
+Use the scope as a persistent project todo board:
+
+```bash
+export OCTOBER_BUS_SCOPE_TOKEN=<scope-token>
+october-bus task add --title "Implement checkout retries"
+october-bus task add --title "Review checkout retries" --depends-on <task-id>
+october-bus task list --ready
+```
+
+Tasks survive daemon restarts. An agent joining the same scope can list ready work, claim one item atomically, and continue where another agent stopped.
+
 ## Protocol
 
 The public draft specification, HTTP contract, MCP mapping, adapter contract, and JSON Schemas live in [`spec/0.1`](spec/0.1). Protocol versions are independent of runtime and SDK versions. See [Client SDKs](docs/clients.md) for Go and TypeScript usage.
@@ -156,7 +167,7 @@ The public draft specification, HTTP contract, MCP mapping, adapter contract, an
 | Presence | Existence, readiness, reachability, and lifecycle remain separate facts |
 | Messaging | Durable notifications, requests, responses, inboxes, and receipts |
 | Delegation | One agent can request bounded work from another agent |
-| Shared tasks | Agents can create, claim, release, complete, and depend on tasks |
+| Shared tasks | People and agents can add work; agents can claim, release, complete, and depend on tasks |
 | Context | Agents exchange explicit, bounded context instead of a global transcript |
 | Human escalation | Agents can request input or permission without inventing authority |
 

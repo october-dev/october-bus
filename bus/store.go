@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 2
+	schemaVersion                = 3
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -147,8 +147,9 @@ CREATE TABLE reservations (
 CREATE TABLE tasks (
   task_id TEXT PRIMARY KEY,
   scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	title TEXT NOT NULL,
   description TEXT NOT NULL,
-  created_by TEXT NOT NULL,
+	created_by TEXT,
   claimed_by TEXT,
   claimed_execution_id TEXT,
   status TEXT NOT NULL CHECK(status IN ('open','claimed','done')),
@@ -174,7 +175,7 @@ CREATE TABLE escalations (
   FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX escalations_scope_status ON escalations(scope_id, status, created_at);
-PRAGMA user_version=2;
+PRAGMA user_version=3;
 COMMIT;`)
 	return err
 }
@@ -875,14 +876,14 @@ func (s *Store) AcknowledgeMessages(ctx context.Context, principal Principal, me
 	return count, nil
 }
 
-const taskColumns = `task_id,scope_id,description,created_by,claimed_by,status,dependencies_json,note,created_at,updated_at`
+const taskColumns = `task_id,scope_id,title,description,created_by,claimed_by,status,dependencies_json,note,created_at,updated_at`
 
 func scanTask(row rowScanner) (Task, error) {
 	var task Task
-	var claimedBy, note sql.NullString
+	var createdBy, claimedBy, note sql.NullString
 	var dependencies string
 	var createdAt, updatedAt int64
-	err := row.Scan(&task.ID, &task.ScopeID, &task.Description, &task.CreatedBy, &claimedBy, &task.Status, &dependencies, &note, &createdAt, &updatedAt)
+	err := row.Scan(&task.ID, &task.ScopeID, &task.Title, &task.Description, &createdBy, &claimedBy, &task.Status, &dependencies, &note, &createdAt, &updatedAt)
 	if err != nil {
 		return Task{}, err
 	}
@@ -891,6 +892,9 @@ func scanTask(row rowScanner) (Task, error) {
 	}
 	if task.Dependencies == nil {
 		task.Dependencies = []string{}
+	}
+	if createdBy.Valid {
+		task.CreatedBy = &createdBy.String
 	}
 	task.ClaimedBy = claimedBy.String
 	task.Note = note.String
@@ -906,7 +910,21 @@ func taskFrom(ctx context.Context, query interface {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, Errorf(CodeNotFound, "Task "+taskID+" was not found")
 	}
-	return task, err
+	if err != nil || task.Status != "open" {
+		return task, err
+	}
+	for _, dependency := range task.Dependencies {
+		var status string
+		depErr := query.QueryRowContext(ctx, `SELECT status FROM tasks WHERE scope_id=? AND task_id=?`, scopeID, dependency).Scan(&status)
+		if depErr != nil {
+			return Task{}, depErr
+		}
+		if status != "done" {
+			return task, nil
+		}
+	}
+	task.Ready = true
+	return task, nil
 }
 
 func releaseStaleTaskClaims(ctx context.Context, tx *sql.Tx, scopeID string) error {
@@ -922,14 +940,14 @@ WHERE scope_id=? AND status='claimed' AND NOT EXISTS (
 	return err
 }
 
-func (s *Store) AddTask(ctx context.Context, principal Principal, input AddTaskInput) (Task, error) {
+func (s *Store) AddTask(ctx context.Context, scopeID, createdBy string, input AddTaskInput) (Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
 	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE scope_id=? AND status!='done'`, principal.ScopeID).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE scope_id=? AND status!='done'`, scopeID).Scan(&count); err != nil {
 		return Task{}, err
 	}
 	if count >= activeTaskCap {
@@ -938,7 +956,7 @@ func (s *Store) AddTask(ctx context.Context, principal Principal, input AddTaskI
 	dependencies := unique(input.Dependencies)
 	for _, dependency := range dependencies {
 		var found int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE scope_id=? AND task_id=?`, principal.ScopeID, dependency).Scan(&found)
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE scope_id=? AND task_id=?`, scopeID, dependency).Scan(&found)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, Errorf(CodeNotFound, "Dependency "+dependency+" was not found")
 		}
@@ -955,12 +973,12 @@ func (s *Store) AddTask(ctx context.Context, principal Principal, input AddTaskI
 		return Task{}, err
 	}
 	now := nowMillis()
-	_, err = tx.ExecContext(ctx, `INSERT INTO tasks(task_id,scope_id,description,created_by,claimed_by,status,dependencies_json,note,created_at,updated_at) VALUES(?,?,?,?,NULL,'open',?,NULL,?,?)`,
-		taskID, principal.ScopeID, input.Description, principal.AgentID, dependenciesJSON, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO tasks(task_id,scope_id,title,description,created_by,claimed_by,status,dependencies_json,note,created_at,updated_at) VALUES(?,?,?,?,?,NULL,'open',?,NULL,?,?)`,
+		taskID, scopeID, input.Title, input.Description, nullableString(createdBy), dependenciesJSON, now, now)
 	if err != nil {
 		return Task{}, err
 	}
-	task, err := taskFrom(ctx, tx, principal.ScopeID, taskID)
+	task, err := taskFrom(ctx, tx, scopeID, taskID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1038,7 +1056,7 @@ func (s *Store) ReleaseTask(ctx context.Context, principal Principal, taskID str
 	return taskFrom(ctx, s.db, principal.ScopeID, taskID)
 }
 
-func (s *Store) ListTasks(ctx context.Context, scopeID string) ([]Task, error) {
+func (s *Store) ListTasks(ctx context.Context, scopeID string, readyOnly bool) ([]Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1063,10 +1081,29 @@ func (s *Store) ListTasks(ctx context.Context, scopeID string) ([]Task, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	statuses := make(map[string]string, len(tasks))
+	for _, task := range tasks {
+		statuses[task.ID] = task.Status
+	}
+	filtered := make([]Task, 0, len(tasks))
+	for i := range tasks {
+		if tasks[i].Status == "open" {
+			tasks[i].Ready = true
+			for _, dependency := range tasks[i].Dependencies {
+				if statuses[dependency] != "done" {
+					tasks[i].Ready = false
+					break
+				}
+			}
+		}
+		if !readyOnly || tasks[i].Ready {
+			filtered = append(filtered, tasks[i])
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return tasks, nil
+	return filtered, nil
 }
 
 const escalationColumns = `escalation_id,scope_id,agent_id,question,options_json,status,answer,created_at,resolved_at`

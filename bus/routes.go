@@ -404,7 +404,14 @@ func (s *Server) listTasks(response http.ResponseWriter, request *http.Request) 
 	if err != nil {
 		return err
 	}
-	result, err := s.runtime.ListTasks(request.Context(), token)
+	readyOnly := false
+	if value := request.URL.Query().Get("ready"); value != "" {
+		if value != "true" && value != "false" {
+			return Errorf(CodeInvalidArgument, "ready must be true or false")
+		}
+		readyOnly = value == "true"
+	}
+	result, err := s.runtime.ListTasks(request.Context(), token, readyOnly)
 	if err != nil {
 		return err
 	}
