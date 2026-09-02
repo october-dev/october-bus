@@ -138,6 +138,26 @@ export interface PublishAgentCardInput {
   agentId: AgentId
 }
 
+export interface A2APrincipal {
+  id: string
+  scopeId: ScopeId
+  publicationId: string
+  label: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateA2APrincipalInput {
+  publicationId: string
+  label: string
+}
+
+export interface IssuedA2APrincipal {
+  principal: A2APrincipal
+  credential: string
+}
+
 export interface HumanEscalation {
   id: string
   scopeId: ScopeId
@@ -194,7 +214,7 @@ export interface AddTaskProgressInput {
 }
 
 export interface StorageRecordSummary {
-  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event' | 'a2aPublication'
+  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event' | 'a2aPublication' | 'credential'
   state: string
   count: number
   estimatedBytes: number

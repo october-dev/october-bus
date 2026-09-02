@@ -3,6 +3,7 @@ import type { BusErrorCode } from './errors.js'
 import type {
   Agent,
   AgentCardPublication,
+  A2APrincipal,
   AgentLifecycle,
   AddTaskInput,
   AddTaskProgressInput,
@@ -12,10 +13,12 @@ import type {
   BusTask,
   CreateScopeInput,
   CreateScopeResult,
+  CreateA2APrincipalInput,
   DeliveryReceipt,
   EventBatch,
   HumanEscalation,
   InboxReservation,
+  IssuedA2APrincipal,
   PruneScopeInput,
   PruneScopeResult,
   PublishAgentCardInput,
@@ -243,6 +246,41 @@ export class OctoberBusScopeClient {
       this.scopeToken,
       'POST',
       `/v1/a2a/publications/${encodeURIComponent(publicationId)}/${action}`,
+      {},
+      options
+    )
+  }
+
+  createA2APrincipal(input: CreateA2APrincipalInput, options?: OperationOptions): Promise<IssuedA2APrincipal> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/a2a/principals', input, options)
+  }
+
+  listA2APrincipals(options?: OperationOptions): Promise<A2APrincipal[]> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/a2a/principals', undefined, options)
+  }
+
+  rotateA2APrincipal(principalId: string, options?: OperationOptions): Promise<IssuedA2APrincipal> {
+    return request(
+      this.address,
+      this.scopeToken,
+      'POST',
+      `/v1/a2a/principals/${encodeURIComponent(principalId)}/rotate`,
+      {},
+      options
+    )
+  }
+
+  setA2APrincipalEnabled(
+    principalId: string,
+    enabled: boolean,
+    options?: OperationOptions
+  ): Promise<A2APrincipal> {
+    const action = enabled ? 'enable' : 'disable'
+    return request(
+      this.address,
+      this.scopeToken,
+      'POST',
+      `/v1/a2a/principals/${encodeURIComponent(principalId)}/${action}`,
       {},
       options
     )

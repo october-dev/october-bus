@@ -148,6 +148,7 @@ Protocol 0.1 defines these event types:
 - `task.created`, `task.claimed`, `task.released`, `task.completed`, and `task.progress_added`
 - `escalation.created` and `escalation.resolved`
 - `a2a.publication_created`, `a2a.publication_enabled`, and `a2a.publication_disabled`
+- `credential.created`, `credential.rotated`, `credential.enabled`, and `credential.disabled`
 
 Each listed transition event MUST be committed atomically with the transition it describes. Retrying an idempotent operation that made no new state change MUST NOT append another event. A heartbeat that only renews a lease does not append a lifecycle event.
 
@@ -163,6 +164,14 @@ An enabled publication exposes an A2A Agent Card at its returned card URL. The c
 
 Scope authority MAY disable and re-enable a publication without changing its ID or URLs. Card and interface URLs MUST be derived from trusted runtime configuration instead of request headers. The reference runtime permits loopback HTTP and requires HTTPS for non-loopback publication URLs.
 
+## Scoped A2A credentials
+
+A scope owner MAY create remote principals for an Agent Card publication. Each principal has a stable opaque ID, a human-readable label, and one bearer credential restricted to invoking that publication. The plaintext credential is returned only when the principal is created or rotated. It MUST NOT appear in lists, Agent Cards, events, logs, or errors.
+
+Rotating a principal invalidates its previous credential immediately without changing the principal ID. Disabling a principal suspends its current credential, and re-enabling it restores that credential unless it was rotated. Disabling the publication also prevents its principals from authenticating.
+
+A scoped A2A credential grants no access to the Bus HTTP API, MCP endpoint, scope authority, agent authority, other publications, or daemon administration. Implementations MUST store a one-way digest instead of the plaintext credential and compare presented credentials in constant time.
+
 ## Human escalation
 
 An agent MAY create an escalation with a question and either no options or two to four options. Creating an escalation does not grant the agent permission or answer the question.
@@ -174,8 +183,9 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, manage Agent Card publications, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
+| Scope token | Register and list agents, create peer links, manage Agent Card publications and their remote principals, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
+| Scoped A2A credential | Invoke one published A2A agent interface when that operation is supported |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.
 

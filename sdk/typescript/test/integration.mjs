@@ -82,6 +82,27 @@ try {
   const enabledPublication = await owner.setAgentCardPublicationEnabled(publication.id, true)
   assert.equal(enabledPublication.enabled, true)
   assert.equal(enabledPublication.cardUrl, publication.cardUrl)
+  const issuedPrincipal = await owner.createA2APrincipal({
+    publicationId: publication.id,
+    label: 'Integration caller'
+  })
+  assert.match(issuedPrincipal.principal.id, /^cred_[0-9a-f]{32}$/)
+  assert.match(issuedPrincipal.credential, new RegExp(`^${issuedPrincipal.principal.id}\\.`))
+  const principals = await owner.listA2APrincipals()
+  assert.equal(principals.length, 1)
+  assert.equal(principals[0].id, issuedPrincipal.principal.id)
+  assert.equal(Object.hasOwn(principals[0], 'credential'), false)
+  const scopedAccess = await fetch(`${run.address}/v1/agents`, {
+    headers: { authorization: `Bearer ${issuedPrincipal.credential}` }
+  })
+  assert.equal(scopedAccess.status, 401)
+  const disabledPrincipal = await owner.setA2APrincipalEnabled(issuedPrincipal.principal.id, false)
+  assert.equal(disabledPrincipal.enabled, false)
+  const rotatedPrincipal = await owner.rotateA2APrincipal(issuedPrincipal.principal.id)
+  assert.equal(rotatedPrincipal.principal.enabled, false)
+  assert.notEqual(rotatedPrincipal.credential, issuedPrincipal.credential)
+  const enabledPrincipal = await owner.setA2APrincipalEnabled(issuedPrincipal.principal.id, true)
+  assert.equal(enabledPrincipal.enabled, true)
   const agentsBeforeReady = await owner.listAgents()
   assert.equal(agentsBeforeReady.every((agent) => !agent.ready), true)
   await plannerSession.setState('ready', true)

@@ -158,6 +158,26 @@ type PublishAgentCardInput struct {
 	AgentID string `json:"agentId"`
 }
 
+type A2APrincipal struct {
+	ID            string `json:"id"`
+	ScopeID       string `json:"scopeId"`
+	PublicationID string `json:"publicationId"`
+	Label         string `json:"label"`
+	Enabled       bool   `json:"enabled"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
+type CreateA2APrincipalInput struct {
+	PublicationID string `json:"publicationId"`
+	Label         string `json:"label"`
+}
+
+type IssuedA2APrincipal struct {
+	Principal  A2APrincipal `json:"principal"`
+	Credential string       `json:"credential"`
+}
+
 type StorageRecordSummary struct {
 	RecordType     string `json:"recordType"`
 	State          string `json:"state"`

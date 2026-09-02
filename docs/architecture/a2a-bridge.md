@@ -25,9 +25,12 @@ SDK versions and A2A protocol versions are independent. The bridge records both.
 - A scope owner chooses which agent cards to publish. The shared daemon does not enumerate agents publicly.
 - A deployment gives each published agent a stable interface URL. Execution IDs are never public identity.
 - Agent interfaces use bearer authentication. Loopback HTTP is allowed for local development. Remote interfaces require HTTPS.
+- Remote principals are bound to one publication. Their credentials do not inherit scope, agent, MCP, or administrative authority.
 - October Bus shared work items are a coordination pool. They are not A2A Tasks. A2A Tasks represent one delegated interaction and its result stream.
 
-The reference daemon stores owner-controlled publications and serves enabled Agent Cards at opaque URLs. It does not implement A2A message or task operations yet.
+The reference daemon stores owner-controlled publications and scoped remote principals, then serves enabled Agent Cards at opaque URLs. It does not implement A2A message or task operations yet.
+
+Principal credentials are stored as one-way digests and shown only when created or rotated. Rotation invalidates the previous value immediately. Both the principal and its publication must be enabled for authentication to succeed.
 
 ### Handler caching and conditional requests
 

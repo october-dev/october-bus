@@ -159,6 +159,22 @@ func TestProtocolSchemas(t *testing.T) {
 	publishInput := resolvedSchema(t, path, "publishAgentCardInput")
 	requireValid(t, publishInput, map[string]any{"agentId": "reviewer"})
 	requireInvalid(t, publishInput, map[string]any{"agentId": "reviewer", "scopeId": "scope"})
+	principal := resolvedSchema(t, path, "a2aPrincipal")
+	requireValid(t, principal, map[string]any{
+		"id": "cred_123", "scopeId": "scope", "publicationId": "pub_123", "label": "Review service", "enabled": true,
+		"createdAt": "2026-09-02T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+	})
+	issuedPrincipal := resolvedSchema(t, path, "issuedA2APrincipal")
+	requireValid(t, issuedPrincipal, map[string]any{
+		"principal": map[string]any{
+			"id": "cred_123", "scopeId": "scope", "publicationId": "pub_123", "label": "Review service", "enabled": true,
+			"createdAt": "2026-09-02T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+		},
+		"credential": "cred_123.secret",
+	})
+	createPrincipal := resolvedSchema(t, path, "createA2APrincipalInput")
+	requireValid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": "Review service"})
+	requireInvalid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": ""})
 
 	prune := resolvedSchema(t, path, "pruneScopeInput")
 	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z"})
@@ -270,6 +286,11 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "agentCardPublication"), jsonValue(t, publication))
+	principal, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{PublicationID: publication.ID, Label: "Review service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "issuedA2APrincipal"), jsonValue(t, principal))
 	planner := bus.Client{Address: address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: address, Token: reviewerRegistration.AgentToken}
 	agent, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true})

@@ -378,12 +378,44 @@
         "updatedAt": { "$ref": "#/$defs/instant" }
       }
     },
+    "createA2APrincipalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicationId", "label"],
+      "properties": {
+        "publicationId": { "$ref": "#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "a2aPrincipal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scopeId", "publicationId", "label", "enabled", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "publicationId": { "$ref": "#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "enabled": { "type": "boolean" },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "issuedA2APrincipal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "credential"],
+      "properties": {
+        "principal": { "$ref": "#/$defs/a2aPrincipal" },
+        "credential": { "type": "string", "minLength": 1 }
+      }
+    },
     "storageRecordSummary": {
       "type": "object",
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication", "credential"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },

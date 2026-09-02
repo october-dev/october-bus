@@ -44,6 +44,13 @@ const task = await scope.addTask({
 const readyTasks = await scope.listTasks({ ready: true })
 const storage = await scope.storageSummary()
 
+const publication = await scope.createAgentCardPublication({ agentId: 'reviewer' })
+const issued = await scope.createA2APrincipal({
+  publicationId: publication.id,
+  label: 'CI reviewer'
+})
+// Store issued.credential securely. It cannot be retrieved later.
+
 const dryRun = await scope.pruneScope({ before: '2026-08-01T00:00:00Z' })
 
 const claimed = await reviewer.claimTask(task.id)
@@ -73,6 +80,8 @@ const messages = await reviewer.pullInbox(50, { waitMs: 25_000 })
 The server caps each wait at 25 seconds. Cancellation through `AbortSignal` does not reserve or lose a message.
 
 Scope credentials create agents, manage the project task board, and handle human escalations. Agent credentials discover peers, exchange messages, coordinate tasks, and ask for human input. Claims and completion always require an execution-bound agent credential.
+
+A remote principal credential is returned only when the principal is created or rotated. Store it securely. It is restricted to one published A2A interface and cannot access the Bus API or MCP endpoint.
 
 Operations time out after 30 seconds by default. Pass `{ timeoutMs, signal }` as the final method argument to set a shorter deadline or cancel a request.
 

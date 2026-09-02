@@ -68,6 +68,11 @@ Failures use:
 | `GET` | `/v1/a2a/publications` | Scope | Agent Card publications in the scope |
 | `POST` | `/v1/a2a/publications/{publicationId}/enable` | Scope | Enabled publication |
 | `POST` | `/v1/a2a/publications/{publicationId}/disable` | Scope | Disabled publication |
+| `POST` | `/v1/a2a/principals` | Scope | New principal and one-time credential |
+| `GET` | `/v1/a2a/principals` | Scope | Remote A2A principals without credentials |
+| `POST` | `/v1/a2a/principals/{principalId}/rotate` | Scope | Principal and replacement credential |
+| `POST` | `/v1/a2a/principals/{principalId}/enable` | Scope | Enabled principal |
+| `POST` | `/v1/a2a/principals/{principalId}/disable` | Scope | Disabled principal |
 | `GET` | `/a2a/agents/{publicationId}/.well-known/agent-card.json` | None | Enabled A2A Agent Card |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
@@ -82,6 +87,8 @@ Failures use:
 Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that can still produce a complete continuation. A batch with `resyncRequired: true` means retention removed events needed by the supplied cursor. The client must rebuild its projection from the resource APIs and resume from the returned `nextRevision`.
 
 Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
+
+`POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authenticate to any `/v1` or `/mcp` operation.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

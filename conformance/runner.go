@@ -146,11 +146,13 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	planner := bus.Client{Address: options.Address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: options.Address, Token: reviewerRegistration.AgentToken}
 
+	var reviewerPublication bus.AgentCardPublication
 	if err := record.check("owner-controlled-agent-card-publication", func() error {
 		publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
 		if err != nil || !publication.Enabled || publication.ID == "" {
 			return fmt.Errorf("unexpected publication: %#v, %v", publication, err)
 		}
+		reviewerPublication = publication
 		listed, err := owner.ListAgentCardPublications(ctx)
 		if err != nil || len(listed) != 1 || listed[0].ID != publication.ID {
 			return fmt.Errorf("unexpected publications: %#v, %v", listed, err)
@@ -188,6 +190,38 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		}
 		_, err = planner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "planner"})
 		return requireCode(err, bus.CodeUnauthenticated)
+	}); err != nil {
+		return result, err
+	}
+
+	if err := record.check("scoped-a2a-principal-credentials", func() error {
+		issued, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{
+			PublicationID: reviewerPublication.ID, Label: "Conformance caller",
+		})
+		if err != nil || issued.Principal.ID == "" || issued.Credential == "" || !issued.Principal.Enabled {
+			return fmt.Errorf("unexpected issued principal: %#v, %v", issued, err)
+		}
+		listed, err := owner.ListA2APrincipals(ctx)
+		if err != nil || len(listed) != 1 || listed[0].ID != issued.Principal.ID {
+			return fmt.Errorf("unexpected principals: %#v, %v", listed, err)
+		}
+		remote := bus.Client{Address: options.Address, Token: issued.Credential}
+		if _, err := remote.ListAgents(ctx); requireCode(err, bus.CodeUnauthenticated) != nil {
+			return fmt.Errorf("scoped credential accessed Bus APIs: %v", err)
+		}
+		disabled, err := owner.SetA2APrincipalEnabled(ctx, issued.Principal.ID, false)
+		if err != nil || disabled.Enabled {
+			return fmt.Errorf("unexpected disabled principal: %#v, %v", disabled, err)
+		}
+		rotated, err := owner.RotateA2APrincipal(ctx, issued.Principal.ID)
+		if err != nil || rotated.Credential == "" || rotated.Credential == issued.Credential || rotated.Principal.Enabled {
+			return fmt.Errorf("unexpected rotated principal: %#v, %v", rotated, err)
+		}
+		enabled, err := owner.SetA2APrincipalEnabled(ctx, issued.Principal.ID, true)
+		if err != nil || !enabled.Enabled {
+			return fmt.Errorf("unexpected enabled principal: %#v, %v", enabled, err)
+		}
+		return nil
 	}); err != nil {
 		return result, err
 	}

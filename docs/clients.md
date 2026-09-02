@@ -7,8 +7,9 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
-- scope token for agent registration, peer links, Agent Card publications, project task management, event streams, storage controls, and human escalation resolution;
+- scope token for agent registration, peer links, Agent Card publications and remote principals, project task management, event streams, storage controls, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation.
+- scoped A2A credential for one published A2A interface only.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
 
@@ -36,6 +37,11 @@ ownerTasks, err := owner.ListTasks(ctx, true)
 storage, err := owner.StorageSummary(ctx)
 events, err := owner.Events(ctx, lastRevision, 50, 25*time.Second)
 publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
+issued, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{
+    PublicationID: publication.ID,
+    Label:         "CI reviewer",
+})
+// Store issued.Credential securely. It cannot be retrieved later.
 
 for batch, err := range owner.WatchEvents(ctx, lastRevision, 50) {
     if err != nil {
@@ -84,6 +90,11 @@ const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
 const readyTasks = await new OctoberBusScopeClient(address, scopeToken).listTasks({ ready: true })
 const owner = new OctoberBusScopeClient(address, scopeToken)
 const publication = await owner.createAgentCardPublication({ agentId: 'reviewer' })
+const issued = await owner.createA2APrincipal({
+  publicationId: publication.id,
+  label: 'CI reviewer'
+})
+// Store issued.credential securely. It cannot be retrieved later.
 
 for await (const batch of owner.watchEvents({ after: lastRevision })) {
   if (batch.resyncRequired) break
@@ -99,6 +110,8 @@ await session.client.addTaskProgress(taskId, {
 Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox and event operations support bounded waits up to 25 seconds. The default request timeout is 30 seconds.
 
 Persist an event batch's `nextRevision` only after applying the whole batch. If `resyncRequired` is true, rebuild from the resource APIs before saving the returned cursor. Event envelopes contain state metadata but not message, task, progress, or escalation contents.
+
+Store a remote principal credential when it is created. It cannot be retrieved later. Rotation returns a replacement and invalidates the previous value immediately. Principal lists never include credentials.
 
 Prefer bounded inbox waiting for efficient pull delivery. `pollInbox` provides an async iterator over repeated bounded waits. Use `withClaimedTask` to release a task if work or completion fails. Keep the managed session alive while holding a claim.
 

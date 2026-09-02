@@ -210,6 +210,26 @@ func (c Client) SetAgentCardPublicationEnabled(ctx context.Context, publicationI
 	return request[AgentCardPublication](ctx, c, http.MethodPost, "/v1/a2a/publications/"+url.PathEscape(publicationID)+"/"+action, map[string]any{})
 }
 
+func (c Client) CreateA2APrincipal(ctx context.Context, input CreateA2APrincipalInput) (IssuedA2APrincipal, error) {
+	return request[IssuedA2APrincipal](ctx, c, http.MethodPost, "/v1/a2a/principals", input)
+}
+
+func (c Client) ListA2APrincipals(ctx context.Context) ([]A2APrincipal, error) {
+	return request[[]A2APrincipal](ctx, c, http.MethodGet, "/v1/a2a/principals", nil)
+}
+
+func (c Client) RotateA2APrincipal(ctx context.Context, principalID string) (IssuedA2APrincipal, error) {
+	return request[IssuedA2APrincipal](ctx, c, http.MethodPost, "/v1/a2a/principals/"+url.PathEscape(principalID)+"/rotate", map[string]any{})
+}
+
+func (c Client) SetA2APrincipalEnabled(ctx context.Context, principalID string, enabled bool) (A2APrincipal, error) {
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
+	return request[A2APrincipal](ctx, c, http.MethodPost, "/v1/a2a/principals/"+url.PathEscape(principalID)+"/"+action, map[string]any{})
+}
+
 func (c Client) WatchEvents(ctx context.Context, after int64, limit int) iter.Seq2[EventBatch, error] {
 	return func(yield func(EventBatch, error) bool) {
 		for ctx.Err() == nil {

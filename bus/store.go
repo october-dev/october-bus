@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 6
+	schemaVersion                = 7
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -213,7 +213,25 @@ CREATE TABLE a2a_publications (
 	FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX a2a_publications_scope_created ON a2a_publications(scope_id, created_at);
-PRAGMA user_version=6;
+CREATE TABLE scoped_credentials (
+	credential_id TEXT PRIMARY KEY,
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	label TEXT NOT NULL,
+	token_hash TEXT NOT NULL UNIQUE,
+	enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE INDEX scoped_credentials_scope_created ON scoped_credentials(scope_id, created_at);
+CREATE TABLE scoped_credential_grants (
+	credential_id TEXT NOT NULL REFERENCES scoped_credentials(credential_id) ON DELETE CASCADE,
+	resource_type TEXT NOT NULL,
+	resource_id TEXT NOT NULL,
+	permission TEXT NOT NULL,
+	PRIMARY KEY(credential_id, resource_type, resource_id, permission)
+);
+CREATE INDEX scoped_credential_grants_resource ON scoped_credential_grants(resource_type, resource_id, permission);
+PRAGMA user_version=7;
 COMMIT;`)
 	return err
 }
