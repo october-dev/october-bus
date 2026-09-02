@@ -34,6 +34,11 @@ messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
 
 ownerTasks, err := owner.ListTasks(ctx, true)
 storage, err := owner.StorageSummary(ctx)
+
+progress, err := agent.AddTaskProgress(ctx, taskID, bus.AddTaskProgressInput{
+    Kind: "progress",
+    Text: "Retry behavior is implemented.",
+})
 ```
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
@@ -65,6 +70,11 @@ await session.setState('ready', true)
 const peers = await session.client.listPeers({ timeoutMs: 10_000 })
 const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
 const readyTasks = await new OctoberBusScopeClient(address, scopeToken).listTasks({ ready: true })
+
+await session.client.addTaskProgress(taskId, {
+  kind: 'progress',
+  text: 'Retry behavior is implemented.'
+})
 ```
 
 Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox reservation and pull operations also accept `waitMs` up to 25 seconds. The default request timeout is 30 seconds.

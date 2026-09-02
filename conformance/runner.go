@@ -321,6 +321,30 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		return result, err
 	}
 
+	if err := record.check("durable-task-progress", func() error {
+		task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Report progress"})
+		if err != nil {
+			return err
+		}
+		if _, err := reviewer.ClaimTask(ctx, task.ID); err != nil {
+			return err
+		}
+		entry, err := reviewer.AddTaskProgress(ctx, task.ID, bus.AddTaskProgressInput{Kind: "progress", Text: "Review started"})
+		if err != nil || entry.Sequence != 1 || entry.AgentID != "reviewer" {
+			return fmt.Errorf("unexpected task progress: %#v, %v", entry, err)
+		}
+		if _, err := reviewer.CompleteTask(ctx, task.ID, "Reviewed"); err != nil {
+			return err
+		}
+		history, err := owner.ListTaskProgress(ctx, task.ID)
+		if err != nil || len(history) != 1 || history[0].Text != "Review started" {
+			return fmt.Errorf("unexpected retained task progress: %#v, %v", history, err)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("execution-replacement-and-stale-claim-recovery", func() error {
 		task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Recover claim"})
 		if err != nil {
@@ -334,6 +358,10 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return err
 		}
 		_, err = reviewer.ListTasks(ctx, false)
+		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
+			return err
+		}
+		_, err = reviewer.AddTaskProgress(ctx, task.ID, bus.AddTaskProgressInput{Kind: "note", Text: "stale execution"})
 		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
 			return err
 		}
@@ -433,7 +461,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		if err != nil {
 			return err
 		}
-		if len(tools.Tools) != 11 {
+		if len(tools.Tools) != 13 {
 			return fmt.Errorf("unexpected MCP tool count: %d", len(tools.Tools))
 		}
 		peers, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_peers", Arguments: map[string]any{}})

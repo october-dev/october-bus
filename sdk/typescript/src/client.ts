@@ -4,6 +4,7 @@ import type {
   Agent,
   AgentLifecycle,
   AddTaskInput,
+  AddTaskProgressInput,
   AskHumanInput,
   BusHealth,
   BusMessage,
@@ -18,7 +19,8 @@ import type {
   RegisterAgentInput,
   RegisterAgentResult,
   SendMessageInput,
-  StorageSummary
+  StorageSummary,
+  TaskProgress
 } from './protocol.js'
 
 interface Success<T> {
@@ -161,6 +163,17 @@ export class OctoberBusScopeClient {
     return request(this.address, this.scopeToken, 'GET', `/v1/tasks${query}`, undefined, operationOptions)
   }
 
+  listTaskProgress(taskId: string, options?: OperationOptions): Promise<TaskProgress[]> {
+    return request(
+      this.address,
+      this.scopeToken,
+      'GET',
+      `/v1/tasks/${encodeURIComponent(taskId)}/progress`,
+      undefined,
+      options
+    )
+  }
+
   storageSummary(options?: OperationOptions): Promise<StorageSummary> {
     return request(this.address, this.scopeToken, 'GET', '/v1/scope/storage', undefined, options)
   }
@@ -279,6 +292,28 @@ export class OctoberBusClient {
     return request(this.address, this.agentToken, 'POST', `/v1/tasks/${encodeURIComponent(taskId)}/complete`, {
       ...(note === undefined ? {} : { note })
     }, options)
+  }
+
+  addTaskProgress(taskId: string, input: AddTaskProgressInput, options?: OperationOptions): Promise<TaskProgress> {
+    return request(
+      this.address,
+      this.agentToken,
+      'POST',
+      `/v1/tasks/${encodeURIComponent(taskId)}/progress`,
+      input,
+      options
+    )
+  }
+
+  listTaskProgress(taskId: string, options?: OperationOptions): Promise<TaskProgress[]> {
+    return request(
+      this.address,
+      this.agentToken,
+      'GET',
+      `/v1/tasks/${encodeURIComponent(taskId)}/progress`,
+      undefined,
+      options
+    )
   }
 
   askHuman(input: AskHumanInput, options?: OperationOptions): Promise<HumanEscalation> {

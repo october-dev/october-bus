@@ -190,6 +190,14 @@ func (c Client) CompleteTask(ctx context.Context, taskID, note string) (Task, er
 	return request[Task](ctx, c, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/complete", map[string]string{"note": note})
 }
 
+func (c Client) AddTaskProgress(ctx context.Context, taskID string, input AddTaskProgressInput) (TaskProgress, error) {
+	return request[TaskProgress](ctx, c, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/progress", input)
+}
+
+func (c Client) ListTaskProgress(ctx context.Context, taskID string) ([]TaskProgress, error) {
+	return request[[]TaskProgress](ctx, c, http.MethodGet, "/v1/tasks/"+url.PathEscape(taskID)+"/progress", nil)
+}
+
 func (c Client) AskHuman(ctx context.Context, input AskHumanInput) (HumanEscalation, error) {
 	return request[HumanEscalation](ctx, c, http.MethodPost, "/v1/escalations", input)
 }

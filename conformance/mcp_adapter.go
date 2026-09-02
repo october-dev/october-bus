@@ -454,11 +454,25 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 		if err := requireToolError(ctx, adapter.session, "claim_task", map[string]any{"taskId": blocked.ID}); err != nil {
 			return err
 		}
+		if _, err := callTool[bus.Task](ctx, adapter.session, "claim_task", map[string]any{"taskId": first.ID}); err != nil {
+			return err
+		}
+		entry, err := callTool[bus.TaskProgress](ctx, adapter.session, "add_task_progress", map[string]any{
+			"taskId": first.ID, "kind": "progress", "text": "Adapter review started",
+		})
+		if err != nil || entry.Sequence != 1 {
+			return fmt.Errorf("unexpected task progress: %#v, %v", entry, err)
+		}
+		history, err := callTool[struct {
+			Progress []bus.TaskProgress `json:"progress"`
+		}](ctx, adapter.session, "list_task_progress", map[string]any{"taskId": first.ID})
+		if err != nil || len(history.Progress) != 1 || history.Progress[0].Text != "Adapter review started" {
+			return fmt.Errorf("unexpected task progress history: %#v, %v", history.Progress, err)
+		}
 		for _, call := range []struct {
 			name string
 			args map[string]any
 		}{
-			{"claim_task", map[string]any{"taskId": first.ID}},
 			{"release_task", map[string]any{"taskId": first.ID}},
 			{"claim_task", map[string]any{"taskId": first.ID}},
 			{"complete_task", map[string]any{"taskId": first.ID, "note": "Complete"}},

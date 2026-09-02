@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 3
+	schemaVersion                = 4
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -162,6 +162,19 @@ CREATE TABLE tasks (
   FOREIGN KEY(scope_id, claimed_by) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX tasks_scope_status ON tasks(scope_id, status, created_at);
+CREATE TABLE task_progress (
+  task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL CHECK(sequence>0),
+  agent_id TEXT NOT NULL,
+  execution_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('progress','note','blocker')),
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(task_id, sequence),
+  FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
+);
+CREATE INDEX task_progress_scope_task ON task_progress(scope_id, task_id, sequence);
 CREATE TABLE escalations (
   escalation_id TEXT PRIMARY KEY,
   scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
@@ -175,7 +188,7 @@ CREATE TABLE escalations (
   FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX escalations_scope_status ON escalations(scope_id, status, created_at);
-PRAGMA user_version=3;
+PRAGMA user_version=4;
 COMMIT;`)
 	return err
 }
@@ -893,6 +906,7 @@ func scanTask(row rowScanner) (Task, error) {
 	if task.Dependencies == nil {
 		task.Dependencies = []string{}
 	}
+	task.RecentProgress = []TaskProgress{}
 	if createdBy.Valid {
 		task.CreatedBy = &createdBy.String
 	}
@@ -905,25 +919,33 @@ func scanTask(row rowScanner) (Task, error) {
 
 func taskFrom(ctx context.Context, query interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, scopeID, taskID string) (Task, error) {
 	task, err := scanTask(query.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE scope_id=? AND task_id=?`, scopeID, taskID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, Errorf(CodeNotFound, "Task "+taskID+" was not found")
 	}
-	if err != nil || task.Status != "open" {
+	if err != nil {
 		return task, err
 	}
-	for _, dependency := range task.Dependencies {
-		var status string
-		depErr := query.QueryRowContext(ctx, `SELECT status FROM tasks WHERE scope_id=? AND task_id=?`, scopeID, dependency).Scan(&status)
-		if depErr != nil {
-			return Task{}, depErr
-		}
-		if status != "done" {
-			return task, nil
+	if task.Status == "open" {
+		task.Ready = true
+		for _, dependency := range task.Dependencies {
+			var status string
+			depErr := query.QueryRowContext(ctx, `SELECT status FROM tasks WHERE scope_id=? AND task_id=?`, scopeID, dependency).Scan(&status)
+			if depErr != nil {
+				return Task{}, depErr
+			}
+			if status != "done" {
+				task.Ready = false
+				break
+			}
 		}
 	}
-	task.Ready = true
+	task.RecentProgress, err = recentProgressForTask(ctx, query, scopeID, taskID)
+	if err != nil {
+		return Task{}, err
+	}
 	return task, nil
 }
 
@@ -1081,12 +1103,21 @@ func (s *Store) ListTasks(ctx context.Context, scopeID string, readyOnly bool) (
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
+	progress, err := recentProgressForScope(ctx, tx, scopeID)
+	if err != nil {
+		return nil, err
+	}
 	statuses := make(map[string]string, len(tasks))
 	for _, task := range tasks {
 		statuses[task.ID] = task.Status
 	}
 	filtered := make([]Task, 0, len(tasks))
 	for i := range tasks {
+		tasks[i].RecentProgress = progress[tasks[i].ID]
+		if tasks[i].RecentProgress == nil {
+			tasks[i].RecentProgress = []TaskProgress{}
+		}
 		if tasks[i].Status == "open" {
 			tasks[i].Ready = true
 			for _, dependency := range tasks[i].Dependencies {

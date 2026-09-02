@@ -243,10 +243,10 @@
     "addTaskInput": {
       "type": "object",
       "additionalProperties": false,
-	      "required": ["title"],
+      "required": ["title"],
       "properties": {
-	        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
-	        "description": { "type": "string", "maxLength": 16384 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 16384 },
         "dependencies": {
           "type": "array",
           "maxItems": 128,
@@ -254,21 +254,48 @@
         }
       }
     },
+    "taskProgressKind": {
+      "type": "string",
+      "enum": ["progress", "note", "blocker"]
+    },
+    "addTaskProgressInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/taskProgressKind" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "taskProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "sequence", "agentId", "executionId", "kind", "text", "createdAt"],
+      "properties": {
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "agentId": { "$ref": "#/$defs/identifier" },
+        "executionId": { "$ref": "#/$defs/identifier" },
+        "kind": { "$ref": "#/$defs/taskProgressKind" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "createdAt": { "$ref": "#/$defs/instant" }
+      }
+    },
     "task": {
       "type": "object",
       "additionalProperties": false,
-	      "required": ["id", "scopeId", "title", "description", "createdBy", "status", "dependencies", "ready", "createdAt", "updatedAt"],
+      "required": ["id", "scopeId", "title", "description", "createdBy", "status", "dependencies", "ready", "recentProgress", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "scopeId": { "$ref": "#/$defs/identifier" },
-	        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
-	        "description": { "type": "string", "maxLength": 16384 },
-	        "createdBy": {
-	          "anyOf": [
-	            { "$ref": "#/$defs/identifier" },
-	            { "type": "null" }
-	          ]
-	        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 16384 },
+        "createdBy": {
+          "anyOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
+        },
         "claimedBy": { "$ref": "#/$defs/identifier" },
         "status": { "type": "string", "enum": ["open", "claimed", "done"] },
         "dependencies": {
@@ -276,7 +303,12 @@
           "maxItems": 128,
           "items": { "$ref": "#/$defs/identifier" }
         },
-	        "ready": { "type": "boolean" },
+        "ready": { "type": "boolean" },
+        "recentProgress": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/taskProgress" }
+        },
         "note": { "type": "string", "maxLength": 16384 },
         "createdAt": { "$ref": "#/$defs/instant" },
         "updatedAt": { "$ref": "#/$defs/instant" }
@@ -294,7 +326,7 @@
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "escalation"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },
@@ -327,10 +359,11 @@
     "retentionCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["messages", "tasks", "escalations"],
+      "required": ["messages", "tasks", "taskProgress", "escalations"],
       "properties": {
         "messages": { "type": "integer", "minimum": 0 },
         "tasks": { "type": "integer", "minimum": 0 },
+        "taskProgress": { "type": "integer", "minimum": 0 },
         "escalations": { "type": "integer", "minimum": 0 }
       }
     },

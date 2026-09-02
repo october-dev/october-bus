@@ -118,6 +118,10 @@ An open task is ready when it is unclaimed and every dependency is done. Clients
 
 An agent can claim an open task only after every dependency is done. A claim belongs to the current execution, not only the logical agent. Only that execution can release or complete it.
 
+The claiming execution MAY append ordered `progress`, `note`, or `blocker` entries while the task is claimed. Other agents and scope authority can read the history. Entries remain available after completion and are removed only when explicit retention removes their task.
+
+The reference runtime limits progress text to 4,000 bytes, history to 1,000 entries, and total progress text to 1 MiB per task. Task results include the most recent 20 entries. The full bounded history is available through the progress-list operation.
+
 The claimant MUST keep its execution lease current. When an execution expires or is replaced, the reference runtime lazily releases its stale claims so another execution can claim them.
 
 The reference runtime limits a scope to 5,000 tasks that are not done.
@@ -126,7 +130,7 @@ The reference runtime limits a scope to 5,000 tasks that are not done.
 
 Accepted work is retained indefinitely by default. Scope authority MAY inspect record counts, estimated payload bytes, and oldest state timestamps without reading record content.
 
-Explicit retention can remove only terminal records older than a caller-provided cutoff. It MUST preserve active delivery, reply, task, and human obligations. A request and response MUST be removed together, and only after both are terminal. A delivered request without a response remains eligible for a late response and MUST NOT be removed. A completed task MUST NOT be removed while an unfinished task depends on it.
+Explicit retention can remove only terminal records older than a caller-provided cutoff. It MUST preserve active delivery, reply, task, and human obligations. A request and response MUST be removed together, and only after both are terminal. A delivered request without a response remains eligible for a late response and MUST NOT be removed. A completed task MUST NOT be removed while an unfinished task depends on it. Removing a task also removes its progress history.
 
 Retention MUST support a dry run and report exact record counts. The reference CLI requires `--yes` before deletion.
 

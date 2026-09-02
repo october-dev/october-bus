@@ -122,17 +122,24 @@ func TestProtocolSchemas(t *testing.T) {
 	requireValid(t, task, map[string]any{
 		"id": "task_123", "scopeId": "scope", "title": "Review", "description": "Review the change",
 		"createdBy": "planner", "claimedBy": "reviewer", "status": "done",
-		"dependencies": []any{}, "ready": false, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+		"dependencies": []any{}, "ready": false, "recentProgress": []any{},
+		"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
 	})
 	requireValid(t, task, map[string]any{
 		"id": "task_124", "scopeId": "scope", "title": "Plan", "description": "",
-		"createdBy": nil, "status": "open", "dependencies": []any{}, "ready": true,
+		"createdBy": nil, "status": "open", "dependencies": []any{}, "ready": true, "recentProgress": []any{},
 		"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
 	})
 	requireInvalid(t, task, map[string]any{
 		"id": "task_123", "scopeId": "scope", "title": "Review", "description": "Review the change",
 		"createdBy": "planner", "status": "claimed", "dependencies": []any{},
-		"ready": false, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+		"ready": false, "recentProgress": []any{},
+		"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+	})
+	progress := resolvedSchema(t, path, "taskProgress")
+	requireValid(t, progress, map[string]any{
+		"taskId": "task_123", "sequence": float64(1), "agentId": "reviewer", "executionId": "exec_123",
+		"kind": "blocker", "text": "Waiting for an API decision", "createdAt": "2026-08-30T00:00:01Z",
 	})
 
 	prune := resolvedSchema(t, path, "pruneScopeInput")
@@ -262,6 +269,18 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "task"), jsonValue(t, task))
+	if _, err := planner.ClaimTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	progressEntry, err := planner.AddTaskProgress(ctx, task.ID, bus.AddTaskProgressInput{Kind: "progress", Text: "Review started"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "taskProgress"), jsonValue(t, progressEntry))
+	progressHistory, err := owner.ListTaskProgress(ctx, task.ID)
+	if err != nil || len(progressHistory) != 1 {
+		t.Fatalf("unexpected progress history: %#v, %v", progressHistory, err)
+	}
 	storage, err := owner.StorageSummary(ctx)
 	if err != nil {
 		t.Fatal(err)

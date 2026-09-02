@@ -59,6 +59,18 @@ The output includes each agent's id, display name, lifecycle, readiness,
 reachability, capabilities, and last update time. Results are sorted by agent
 id. Use `--json` for machine-readable output.
 
+## Project task board
+
+A scope owner can add work and inspect dependency-ready tasks:
+
+```bash
+export OCTOBER_BUS_SCOPE_TOKEN=<scope-token>
+october-bus task add --title "Review checkout retries" --description "Check idempotency and error handling."
+october-bus task list --ready
+```
+
+Claims, progress updates, release, and completion require an execution-bound agent credential. Task listings include the most recent progress, notes, and blockers so a later agent or user can continue from durable state.
+
 ## Storage and retention
 
 Scope owners can inspect storage growth without reading message, task, or escalation content:

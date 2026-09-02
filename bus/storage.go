@@ -31,6 +31,8 @@ FROM messages WHERE scope_id=? GROUP BY state ORDER BY state`},
 		{"task", `SELECT status,COUNT(*),COALESCE(SUM(length(CAST(title AS BLOB))+length(CAST(description AS BLOB))+length(CAST(dependencies_json AS BLOB))+COALESCE(length(CAST(note AS BLOB)),0)),0),
 MIN(CASE status WHEN 'open' THEN created_at ELSE updated_at END)
 FROM tasks WHERE scope_id=? GROUP BY status ORDER BY status`},
+		{"taskProgress", `SELECT kind,COUNT(*),COALESCE(SUM(length(CAST(text AS BLOB))),0),MIN(created_at)
+FROM task_progress WHERE scope_id=? GROUP BY kind ORDER BY kind`},
 		{"escalation", `SELECT status,COUNT(*),COALESCE(SUM(length(CAST(question AS BLOB))+length(CAST(options_json AS BLOB))+COALESCE(length(CAST(answer AS BLOB)),0)),0),
 MIN(CASE status WHEN 'pending' THEN created_at ELSE resolved_at END)
 FROM escalations WHERE scope_id=? GROUP BY status ORDER BY status`},
@@ -215,9 +217,19 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
+	var taskProgressCount int64
+	for _, taskID := range tasks {
+		var count int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_progress WHERE scope_id=? AND task_id=?`, scopeID, taskID).Scan(&count); err != nil {
+			return PruneScopeResult{}, err
+		}
+		taskProgressCount += count
+	}
 	result := PruneScopeResult{
 		ScopeID: scopeID, Before: time.UnixMilli(before).UTC().Format(time.RFC3339Nano), DryRun: !execute,
-		Records: RetentionCounts{Messages: int64(len(messages)), Tasks: int64(len(tasks)), Escalations: int64(len(escalations))},
+		Records: RetentionCounts{
+			Messages: int64(len(messages)), Tasks: int64(len(tasks)), TaskProgress: taskProgressCount, Escalations: int64(len(escalations)),
+		},
 	}
 	if execute {
 		for _, message := range messages {

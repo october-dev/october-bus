@@ -55,6 +55,8 @@ Failures use:
 | `POST` | `/v1/tasks/{taskId}/claim` | Agent | Claimed task |
 | `POST` | `/v1/tasks/{taskId}/release` | Claiming execution | Open task |
 | `POST` | `/v1/tasks/{taskId}/complete` | Claiming execution | Completed task |
+| `POST` | `/v1/tasks/{taskId}/progress` | Claiming execution | Appended task progress |
+| `GET` | `/v1/tasks/{taskId}/progress` | Scope or agent | Ordered task progress history |
 | `POST` | `/v1/escalations` | Agent | New escalation |
 | `GET` | `/v1/escalations/{escalationId}` | Agent | Escalation in the scope |
 | `GET` | `/v1/scope/escalations` | Scope | Escalations in the scope |

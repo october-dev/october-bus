@@ -10,6 +10,7 @@ export type AgentLifecycle = 'starting' | 'ready' | 'working' | 'idle' | 'needs_
 export type MessageMode = 'notify' | 'request' | 'response'
 export type DeliveryState = 'queued' | 'reserved' | 'delivered' | 'acknowledged' | 'expired'
 export type TaskStatus = 'open' | 'claimed' | 'done'
+export type TaskProgressKind = 'progress' | 'note' | 'blocker'
 export type EscalationStatus = 'pending' | 'resolved'
 
 export interface AgentCapability {
@@ -87,9 +88,20 @@ export interface BusTask {
   status: TaskStatus
   dependencies: TaskId[]
   ready: boolean
+  recentProgress: TaskProgress[]
   note?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface TaskProgress {
+  taskId: TaskId
+  sequence: number
+  agentId: AgentId
+  executionId: ExecutionId
+  kind: TaskProgressKind
+  text: string
+  createdAt: string
 }
 
 export interface HumanEscalation {
@@ -142,8 +154,13 @@ export interface AddTaskInput {
   dependencies?: TaskId[]
 }
 
+export interface AddTaskProgressInput {
+  kind: TaskProgressKind
+  text: string
+}
+
 export interface StorageRecordSummary {
-  recordType: 'message' | 'task' | 'escalation'
+  recordType: 'message' | 'task' | 'taskProgress' | 'escalation'
   state: string
   count: number
   estimatedBytes: number
@@ -165,6 +182,7 @@ export interface PruneScopeInput {
 export interface RetentionCounts {
   messages: number
   tasks: number
+  taskProgress: number
   escalations: number
 }
 

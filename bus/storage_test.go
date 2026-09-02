@@ -36,7 +36,20 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	expiredDelivered := sendTestMessage(t, ctx, agents, SendMessageInput{To: "reviewer", Body: "late reply remains possible", Mode: MessageRequest})
 	setMessageExpired(t, agents, expiredDelivered.MessageID, old, true)
 
-	independent := addAndCompleteTestTask(t, ctx, agents, "Completed independent task")
+	independent, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Completed independent task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agents.runtime.ClaimTask(ctx, agents.plannerToken, independent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agents.runtime.AddTaskProgress(ctx, agents.plannerToken, independent.ID, AddTaskProgressInput{Kind: "progress", Text: "Completed"}); err != nil {
+		t.Fatal(err)
+	}
+	independent, err = agents.runtime.CompleteTask(ctx, agents.plannerToken, independent.ID, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
 	dependency := addAndCompleteTestTask(t, ctx, agents, "Completed active dependency")
 	if _, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Still active", Dependencies: []string{dependency.ID}}); err != nil {
 		t.Fatal(err)
@@ -71,7 +84,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := RetentionCounts{Messages: 4, Tasks: 1, Escalations: 1}
+	want := RetentionCounts{Messages: 4, Tasks: 1, TaskProgress: 1, Escalations: 1}
 	if !dryRun.DryRun || dryRun.Records != want {
 		t.Fatalf("unexpected dry run: %#v", dryRun)
 	}
@@ -90,6 +103,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 		requireRowCount(t, agents, "messages", "message_id", id, 1)
 	}
 	requireRowCount(t, agents, "tasks", "task_id", independent.ID, 0)
+	requireRowCount(t, agents, "task_progress", "task_id", independent.ID, 0)
 	requireRowCount(t, agents, "tasks", "task_id", dependency.ID, 1)
 	requireRowCount(t, agents, "escalations", "escalation_id", resolved.ID, 0)
 }

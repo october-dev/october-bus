@@ -46,6 +46,12 @@ const storage = await scope.storageSummary()
 
 const dryRun = await scope.pruneScope({ before: '2026-08-01T00:00:00Z' })
 
+const claimed = await reviewer.claimTask(task.id)
+await reviewer.addTaskProgress(claimed.id, {
+  kind: 'progress',
+  text: 'Checked idempotency. Reviewing error handling now.'
+})
+
 const receipt = await planner.sendMessage({
   to: 'reviewer',
   mode: 'request',

@@ -99,18 +99,29 @@ type InboxReservation struct {
 }
 
 type Task struct {
-	ID           string   `json:"id"`
-	ScopeID      string   `json:"scopeId"`
-	Title        string   `json:"title"`
-	Description  string   `json:"description"`
-	CreatedBy    *string  `json:"createdBy"`
-	ClaimedBy    string   `json:"claimedBy,omitempty"`
-	Status       string   `json:"status"`
-	Dependencies []string `json:"dependencies"`
-	Ready        bool     `json:"ready"`
-	Note         string   `json:"note,omitempty"`
-	CreatedAt    string   `json:"createdAt"`
-	UpdatedAt    string   `json:"updatedAt"`
+	ID             string         `json:"id"`
+	ScopeID        string         `json:"scopeId"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	CreatedBy      *string        `json:"createdBy"`
+	ClaimedBy      string         `json:"claimedBy,omitempty"`
+	Status         string         `json:"status"`
+	Dependencies   []string       `json:"dependencies"`
+	Ready          bool           `json:"ready"`
+	RecentProgress []TaskProgress `json:"recentProgress"`
+	Note           string         `json:"note,omitempty"`
+	CreatedAt      string         `json:"createdAt"`
+	UpdatedAt      string         `json:"updatedAt"`
+}
+
+type TaskProgress struct {
+	TaskID      string `json:"taskId"`
+	Sequence    int64  `json:"sequence"`
+	AgentID     string `json:"agentId"`
+	ExecutionID string `json:"executionId"`
+	Kind        string `json:"kind"`
+	Text        string `json:"text"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 type StorageRecordSummary struct {
@@ -134,9 +145,10 @@ type PruneScopeInput struct {
 }
 
 type RetentionCounts struct {
-	Messages    int64 `json:"messages"`
-	Tasks       int64 `json:"tasks"`
-	Escalations int64 `json:"escalations"`
+	Messages     int64 `json:"messages"`
+	Tasks        int64 `json:"tasks"`
+	TaskProgress int64 `json:"taskProgress"`
+	Escalations  int64 `json:"escalations"`
 }
 
 type PruneScopeResult struct {
@@ -201,6 +213,11 @@ type AddTaskInput struct {
 	Title        string   `json:"title"`
 	Description  string   `json:"description,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
+}
+
+type AddTaskProgressInput struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
 }
 
 type AskHumanInput struct {

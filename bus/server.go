@@ -280,6 +280,21 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 			result, err := s.runtime.CompleteTask(ctx, token, input.TaskID, input.Note)
 			return nil, result, err
 		})
+	type taskProgressInput struct {
+		TaskID string `json:"taskId"`
+		Kind   string `json:"kind"`
+		Text   string `json:"text"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "add_task_progress", Description: "Append progress, a note, or a blocker to a claimed task."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input taskProgressInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.AddTaskProgress(ctx, token, input.TaskID, AddTaskProgressInput{Kind: input.Kind, Text: input.Text})
+			return nil, result, err
+		})
+	mcp.AddTool(server, &mcp.Tool{Name: "list_task_progress", Description: "List the durable progress history for a task."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.ListTaskProgress(ctx, token, input.TaskID)
+			return nil, map[string]any{"progress": result}, err
+		})
 	type listTasksInput struct {
 		Ready bool `json:"ready,omitempty"`
 	}

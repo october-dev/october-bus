@@ -360,6 +360,36 @@ func (r *Runtime) CompleteTask(ctx context.Context, agentToken, taskID, note str
 	return r.store.CompleteTask(ctx, principal, taskID, note)
 }
 
+func (r *Runtime) AddTaskProgress(ctx context.Context, agentToken, taskID string, input AddTaskProgressInput) (TaskProgress, error) {
+	principal, err := r.Principal(ctx, agentToken)
+	if err != nil {
+		return TaskProgress{}, err
+	}
+	if err := validateIdentity(taskID, "taskId", false); err != nil {
+		return TaskProgress{}, err
+	}
+	switch input.Kind {
+	case "progress", "note", "blocker":
+	default:
+		return TaskProgress{}, Errorf(CodeInvalidArgument, "kind must be progress, note, or blocker")
+	}
+	if err := validateText(input.Text, "text", 4000, false); err != nil {
+		return TaskProgress{}, err
+	}
+	return r.store.AddTaskProgress(ctx, principal, taskID, input)
+}
+
+func (r *Runtime) ListTaskProgress(ctx context.Context, token, taskID string) ([]TaskProgress, error) {
+	scopeID, _, err := r.taskAuthority(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateIdentity(taskID, "taskId", false); err != nil {
+		return nil, err
+	}
+	return r.store.ListTaskProgress(ctx, scopeID, taskID)
+}
+
 func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) ([]Task, error) {
 	scopeID, _, err := r.taskAuthority(ctx, token)
 	if err != nil {

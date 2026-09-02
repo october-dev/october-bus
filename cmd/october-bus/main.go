@@ -534,6 +534,9 @@ func printTasksHuman(tasks []bus.Task) error {
 		if task.ClaimedBy != "" {
 			fmt.Printf("  claimed by: %s\n", task.ClaimedBy)
 		}
+		for _, progress := range task.RecentProgress {
+			fmt.Printf("  progress #%d [%s] by %s: %q\n", progress.Sequence, progress.Kind, progress.AgentID, progress.Text)
+		}
 	}
 	return nil
 }
@@ -629,8 +632,8 @@ func printPruneResultHuman(result bus.PruneScopeResult) error {
 	if !result.DryRun {
 		action = "Removed"
 	}
-	fmt.Printf("%s %d messages, %d tasks, and %d escalations older than %s.\n",
-		action, result.Records.Messages, result.Records.Tasks, result.Records.Escalations, result.Before)
+	fmt.Printf("%s %d messages, %d tasks, %d task progress entries, and %d escalations older than %s.\n",
+		action, result.Records.Messages, result.Records.Tasks, result.Records.TaskProgress, result.Records.Escalations, result.Before)
 	if result.DryRun {
 		fmt.Println("Dry run only. Pass --yes to remove these records.")
 	}

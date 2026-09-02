@@ -464,7 +464,7 @@ func TestOlderSchemaFailsBeforeServingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Open(path)
-	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 3") {
+	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 4") {
 		t.Fatalf("older schema did not fail clearly: %v", err)
 	}
 }
@@ -700,7 +700,7 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 11 {
+	if err != nil || len(tools.Tools) != 13 {
 		t.Fatalf("unexpected tools: %d, %v", len(tools.Tools), err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_peers", Arguments: map[string]any{}})

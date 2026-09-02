@@ -106,6 +106,10 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/tasks/{taskId}/complete",
 		routeMethod{http.MethodPost, s.completeTask},
 	)
+	registerRoute(router, "/v1/tasks/{taskId}/progress",
+		routeMethod{http.MethodGet, s.listTaskProgress},
+		routeMethod{http.MethodPost, s.addTaskProgress},
+	)
 	registerRoute(router, "/v1/escalations",
 		routeMethod{http.MethodPost, s.askHuman},
 	)
@@ -458,6 +462,36 @@ func (s *Server) completeTask(response http.ResponseWriter, request *http.Reques
 		return err
 	}
 	result, err := s.runtime.CompleteTask(request.Context(), token, request.PathValue("taskId"), input.Note)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) addTaskProgress(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	var input AddTaskProgressInput
+	if err := decodeBody(response, request, &input); err != nil {
+		return err
+	}
+	result, err := s.runtime.AddTaskProgress(request.Context(), token, request.PathValue("taskId"), input)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusCreated, result)
+	return nil
+}
+
+func (s *Server) listTaskProgress(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	result, err := s.runtime.ListTaskProgress(request.Context(), token, request.PathValue("taskId"))
 	if err != nil {
 		return err
 	}
