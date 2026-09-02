@@ -336,12 +336,20 @@ func (s *Server) reserveInbox(response http.ResponseWriter, request *http.Reques
 		return err
 	}
 	var input struct {
-		Limit int `json:"limit,omitempty"`
+		Limit  int   `json:"limit,omitempty"`
+		WaitMS int64 `json:"waitMs,omitempty"`
 	}
 	if err := decodeBody(response, request, &input); err != nil {
 		return err
 	}
-	result, err := s.runtime.ReserveInbox(request.Context(), token, input.Limit)
+	parentContext := request.Context()
+	waitContext, cancel := s.inboxWaitContext(parentContext)
+	defer cancel()
+	result, err := s.runtime.ReserveInbox(waitContext, token, input.Limit, input.WaitMS)
+	if s.inboxWaitStopped(parentContext, err) {
+		writeResult(response, http.StatusOK, nil)
+		return nil
+	}
 	if err != nil {
 		return err
 	}

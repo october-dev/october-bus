@@ -20,33 +20,13 @@ export interface AgentSessionOptions {
 
 export interface InboxPollingOptions {
   limit?: number
-  intervalMs?: number
-  maxIntervalMs?: number
-  backoffFactor?: number
+  waitMs?: number
   signal?: AbortSignal
 }
 
 export interface ClaimedTaskResult<T> {
   task: BusTask
   value: T
-}
-
-function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason ?? new Error('Operation aborted'))
-      return
-    }
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(signal?.reason ?? new Error('Operation aborted'))
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, milliseconds)
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 export function requiredEnvironmentValue(
@@ -172,25 +152,23 @@ export async function* pollInbox(
   options: InboxPollingOptions = {}
 ): AsyncGenerator<BusMessage[]> {
   const limit = options.limit ?? 50
-  const intervalMs = options.intervalMs ?? 1_000
-  const maxIntervalMs = options.maxIntervalMs ?? 10_000
-  const backoffFactor = options.backoffFactor ?? 1.5
+  const waitMs = options.waitMs ?? 25_000
   if (limit < 1 || limit > 100) throw new Error('limit must be between 1 and 100')
-  if (intervalMs < 1) throw new Error('intervalMs must be positive')
-  if (maxIntervalMs < intervalMs) throw new Error('maxIntervalMs must not be shorter than intervalMs')
-  if (backoffFactor < 1 || !Number.isFinite(backoffFactor)) {
-    throw new Error('backoffFactor must be a finite number of at least 1')
+  if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > 25_000) {
+    throw new Error('waitMs must be an integer between 1 and 25000')
   }
-  let nextIntervalMs = intervalMs
   while (!options.signal?.aborted) {
-    const messages = await client.pullInbox(limit, options.signal ? { signal: options.signal } : undefined)
-    if (messages.length > 0) {
-      nextIntervalMs = intervalMs
-      yield messages
-    } else {
-      nextIntervalMs = Math.min(maxIntervalMs, Math.ceil(nextIntervalMs * backoffFactor))
+    let messages: BusMessage[]
+    try {
+      messages = await client.pullInbox(limit, {
+        waitMs,
+        ...(options.signal === undefined ? {} : { signal: options.signal })
+      })
+    } catch (error) {
+      if (options.signal?.aborted) return
+      throw error
     }
-    if (!options.signal?.aborted) await delay(nextIntervalMs, options.signal)
+    if (messages.length > 0) yield messages
   }
 }
 

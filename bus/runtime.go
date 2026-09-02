@@ -1,11 +1,19 @@
 package bus
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
-const maxExpiryMS int64 = 30 * 24 * 60 * 60 * 1000
+const (
+	maxExpiryMS int64 = 30 * 24 * 60 * 60 * 1000
+	// Inbox waits stay below the server and default client timeout of 30 seconds.
+	maxInboxWaitMS int64 = 25 * 1000
+)
 
 type Runtime struct {
-	store *Store
+	store        *Store
+	inboxSignals *inboxSignals
 }
 
 func Open(source string) (*Runtime, error) {
@@ -13,7 +21,7 @@ func Open(source string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{store: store}, nil
+	return &Runtime{store: store, inboxSignals: newInboxSignals()}, nil
 }
 
 func (r *Runtime) Close() error { return r.store.Close() }
@@ -54,7 +62,11 @@ func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input Re
 	if input.Capabilities == nil {
 		input.Capabilities = []AgentCapability{}
 	}
-	return r.store.RegisterAgent(ctx, scopeID, input)
+	result, err := r.store.RegisterAgent(ctx, scopeID, input)
+	if err == nil {
+		r.inboxSignals.notify(inboxSignalKey{scopeID: result.ScopeID, agentID: result.AgentID})
+	}
+	return result, err
 }
 
 func (r *Runtime) ListAgents(ctx context.Context, scopeToken string) ([]Agent, error) {
@@ -138,7 +150,11 @@ func (r *Runtime) SendMessage(ctx context.Context, agentToken string, input Send
 	if input.Context == nil {
 		input.Context = []ContextItem{}
 	}
-	return r.store.SendMessage(ctx, principal, input)
+	result, err := r.store.SendMessage(ctx, principal, input)
+	if err == nil {
+		r.inboxSignals.notify(inboxSignalKey{scopeID: principal.ScopeID, agentID: input.To})
+	}
+	return result, err
 }
 
 func (r *Runtime) Receipt(ctx context.Context, agentToken, messageID string) (DeliveryReceipt, error) {
@@ -152,18 +168,96 @@ func (r *Runtime) Receipt(ctx context.Context, agentToken, messageID string) (De
 	return r.store.Receipt(ctx, principal, messageID)
 }
 
-func (r *Runtime) ReserveInbox(ctx context.Context, agentToken string, limit int) (*InboxReservation, error) {
-	principal, err := r.Principal(ctx, agentToken)
-	if err != nil {
-		return nil, err
-	}
+func normalizedInboxLimit(limit int) (int, error) {
 	if limit == 0 {
 		limit = 50
 	}
 	if limit < 1 || limit > 100 {
-		return nil, Errorf(CodeInvalidArgument, "limit must be between 1 and 100")
+		return 0, Errorf(CodeInvalidArgument, "limit must be between 1 and 100")
 	}
-	return r.store.ReserveInbox(ctx, principal, limit)
+	return limit, nil
+}
+
+// ReserveInbox reserves available messages, waiting for up to waitMS when the
+// inbox is empty. A zero wait returns immediately. Callers embedding Runtime
+// directly should cancel ctx before closing the Runtime.
+func (r *Runtime) ReserveInbox(ctx context.Context, agentToken string, limit int, waitMS int64) (*InboxReservation, error) {
+	principal, err := r.Principal(ctx, agentToken)
+	if err != nil {
+		return nil, err
+	}
+	limit, err = normalizedInboxLimit(limit)
+	if err != nil {
+		return nil, err
+	}
+	if waitMS < 0 || waitMS > maxInboxWaitMS {
+		return nil, Errorf(CodeInvalidArgument, "waitMs must be between 0 and 25000")
+	}
+	if waitMS == 0 {
+		return r.store.ReserveInbox(ctx, principal, limit)
+	}
+	deadline := time.Now().Add(time.Duration(waitMS) * time.Millisecond)
+	key := inboxSignalKey{scopeID: principal.ScopeID, agentID: principal.AgentID}
+	for {
+		signal, unsubscribe := r.inboxSignals.subscribe(key)
+		principal, err = r.Principal(ctx, agentToken)
+		if err != nil {
+			unsubscribe()
+			return nil, err
+		}
+		reservation, err := r.store.ReserveInbox(ctx, principal, limit)
+		if err != nil || reservation != nil {
+			unsubscribe()
+			return reservation, err
+		}
+
+		now := time.Now()
+		if !now.Before(deadline) {
+			unsubscribe()
+			return nil, nil
+		}
+		wakeAt := deadline
+		leaseExpiresAt := time.UnixMilli(principal.LeaseExpiresAt)
+		if leaseExpiresAt.Before(wakeAt) {
+			wakeAt = leaseExpiresAt
+		}
+		reservationExpiresAt, err := r.store.NextInboxReservationExpiry(ctx, principal)
+		if err != nil {
+			unsubscribe()
+			return nil, err
+		}
+		if reservationExpiresAt > 0 {
+			expiresAt := time.UnixMilli(reservationExpiresAt)
+			if expiresAt.Before(wakeAt) {
+				wakeAt = expiresAt
+			}
+		}
+		wait := time.Until(wakeAt)
+		if wait <= 0 {
+			unsubscribe()
+			continue
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			stopTimer(timer)
+			unsubscribe()
+			return nil, ctx.Err()
+		case <-signal:
+			stopTimer(timer)
+		case <-timer.C:
+		}
+		unsubscribe()
+	}
+}
+
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
 }
 
 func (r *Runtime) CommitInbox(ctx context.Context, agentToken, reservationID string) ([]Message, error) {
@@ -185,7 +279,11 @@ func (r *Runtime) ReleaseInbox(ctx context.Context, agentToken, reservationID st
 	if err := validateIdentity(reservationID, "reservationId", false); err != nil {
 		return err
 	}
-	return r.store.ReleaseInbox(ctx, principal, reservationID)
+	err = r.store.ReleaseInbox(ctx, principal, reservationID)
+	if err == nil {
+		r.inboxSignals.notify(inboxSignalKey{scopeID: principal.ScopeID, agentID: principal.AgentID})
+	}
+	return err
 }
 
 func (r *Runtime) AcknowledgeMessages(ctx context.Context, agentToken string, messageIDs []string) (int64, error) {

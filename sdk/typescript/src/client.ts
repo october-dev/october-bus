@@ -32,6 +32,10 @@ export interface OperationOptions {
   timeoutMs?: number
 }
 
+export interface InboxReservationOptions extends OperationOptions {
+  waitMs?: number
+}
+
 async function request<T>(
   address: string,
   token: string | undefined,
@@ -176,8 +180,16 @@ export class OctoberBusClient {
     return request(this.address, this.agentToken, 'GET', `/v1/messages/${encodeURIComponent(messageId)}`, undefined, options)
   }
 
-  reserveInbox(limit = 50, options?: OperationOptions): Promise<InboxReservation | null> {
-    return request(this.address, this.agentToken, 'POST', '/v1/inbox/reserve', { limit }, options)
+  reserveInbox(limit = 50, options: InboxReservationOptions = {}): Promise<InboxReservation | null> {
+    const { waitMs, ...operationOptions } = options
+    return request(
+      this.address,
+      this.agentToken,
+      'POST',
+      '/v1/inbox/reserve',
+      { limit, ...(waitMs === undefined ? {} : { waitMs }) },
+      operationOptions
+    )
   }
 
   commitInbox(reservationId: string, options?: OperationOptions): Promise<BusMessage[]> {
@@ -202,7 +214,7 @@ export class OctoberBusClient {
     )
   }
 
-  async pullInbox(limit = 50, options?: OperationOptions): Promise<BusMessage[]> {
+  async pullInbox(limit = 50, options?: InboxReservationOptions): Promise<BusMessage[]> {
     const reservation = await this.reserveInbox(limit, options)
     return reservation ? this.commitInbox(reservation.id, options) : []
   }

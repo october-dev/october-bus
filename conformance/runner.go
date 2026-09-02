@@ -187,7 +187,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	}
 
 	if err := record.check("reservation-delivery-and-acknowledgement", func() error {
-		reservation, err := reviewer.ReserveInbox(ctx, 10)
+		reservation, err := reviewer.ReserveInbox(ctx, 10, 0)
 		if err != nil || reservation == nil || len(reservation.Messages) != 1 || reservation.Messages[0].ID != request.MessageID {
 			return fmt.Errorf("unexpected reservation: %#v, %v", reservation, err)
 		}
@@ -212,7 +212,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		if err != nil {
 			return err
 		}
-		messages, err := planner.PullInbox(ctx, 10)
+		messages, err := planner.PullInbox(ctx, 10, 0)
 		if err != nil || len(messages) != 1 || messages[0].ID != response.MessageID {
 			return fmt.Errorf("unexpected response inbox: %#v, %v", messages, err)
 		}
@@ -237,13 +237,45 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return err
 		}
 		time.Sleep(50 * time.Millisecond)
-		messages, err := reviewer.PullInbox(ctx, 10)
+		messages, err := reviewer.PullInbox(ctx, 10, 0)
 		if err != nil || len(messages) != 0 {
 			return fmt.Errorf("expired message was delivered: %#v, %v", messages, err)
 		}
 		state, err := planner.Receipt(ctx, receipt.MessageID)
 		if err != nil || state.State != bus.DeliveryExpired {
 			return fmt.Errorf("unexpected expiry receipt: %#v, %v", state, err)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
+	if err := record.check("bounded-inbox-wait", func() error {
+		type waitResult struct {
+			messages []bus.Message
+			err      error
+		}
+		waiting := make(chan waitResult, 1)
+		go func() {
+			messages, err := reviewer.PullInbox(ctx, 10, 2*time.Second)
+			waiting <- waitResult{messages: messages, err: err}
+		}()
+		time.Sleep(50 * time.Millisecond)
+		receipt, err := planner.SendMessage(ctx, bus.SendMessageInput{To: "reviewer", Body: "Wake waiting inbox"})
+		if err != nil {
+			return err
+		}
+		select {
+		case waited := <-waiting:
+			if waited.err != nil || len(waited.messages) != 1 || waited.messages[0].ID != receipt.MessageID {
+				return fmt.Errorf("unexpected waited inbox: %#v, %v", waited.messages, waited.err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		count, err := reviewer.AcknowledgeMessages(ctx, []string{receipt.MessageID})
+		if err != nil || count != 1 {
+			return fmt.Errorf("unexpected waited acknowledgement: %d, %v", count, err)
 		}
 		return nil
 	}); err != nil {

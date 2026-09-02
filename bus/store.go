@@ -677,6 +677,16 @@ func releaseReservation(ctx context.Context, tx *sql.Tx, scopeID, agentID, reser
 	return err
 }
 
+func requireCurrentExecution(ctx context.Context, tx *sql.Tx, principal Principal, now int64) error {
+	var executionID string
+	var leaseExpiresAt int64
+	err := tx.QueryRowContext(ctx, `SELECT execution_id,lease_expires_at FROM agents WHERE scope_id=? AND agent_id=?`, principal.ScopeID, principal.AgentID).Scan(&executionID, &leaseExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (executionID != principal.ExecutionID || leaseExpiresAt <= now)) {
+		return Errorf(CodeUnauthenticated, "Agent execution is no longer current")
+	}
+	return err
+}
+
 func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int) (*InboxReservation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -684,6 +694,9 @@ func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int
 	}
 	defer tx.Rollback()
 	now := nowMillis()
+	if err := requireCurrentExecution(ctx, tx, principal, now); err != nil {
+		return nil, err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, now); err != nil {
 		return nil, err
 	}
@@ -751,6 +764,15 @@ func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int
 		return nil, err
 	}
 	return &InboxReservation{ID: reservationID, ExpiresAt: instant(expiresAt), Messages: messages}, nil
+}
+
+func (s *Store) NextInboxReservationExpiry(ctx context.Context, principal Principal) (int64, error) {
+	var expiresAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT MIN(expires_at) FROM reservations WHERE scope_id=? AND agent_id=?`, principal.ScopeID, principal.AgentID).Scan(&expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return expiresAt.Int64, nil
 }
 
 func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservationID string) ([]Message, error) {

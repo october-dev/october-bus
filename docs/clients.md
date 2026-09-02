@@ -15,7 +15,7 @@ Keep admin and scope tokens outside model context. A managed session gives the h
 ## Go
 
 ```go
-ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 
 owner := bus.Client{Address: address, Token: scopeToken}
@@ -30,6 +30,7 @@ if err != nil {
 
 agent := bus.Client{Address: address, Token: registration.AgentToken}
 peers, err := agent.ListPeers(ctx)
+messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
 ```
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
@@ -59,11 +60,12 @@ const session = await OctoberBusAgentSession.start({
 
 await session.setState('ready', true)
 const peers = await session.client.listPeers({ timeoutMs: 10_000 })
+const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
 ```
 
-Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. The default timeout is 30 seconds.
+Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox reservation and pull operations also accept `waitMs` up to 25 seconds. The default request timeout is 30 seconds.
 
-Use `pollInbox` for abortable pull delivery with bounded backoff. Use `withClaimedTask` to release a task if work or completion fails. Keep the managed session alive while holding a claim.
+Prefer bounded inbox waiting for efficient pull delivery. `pollInbox` provides an async iterator over repeated bounded waits. Use `withClaimedTask` to release a task if work or completion fails. Keep the managed session alive while holding a claim.
 
 ## Errors
 

@@ -85,6 +85,17 @@ try {
   assert.equal(messages.length, 1)
   assert.equal(messages[0].id, receipt.messageId)
   assert.equal(await reviewer.acknowledgeMessages([messages[0].id]), 1)
+  const waitingInbox = reviewer.pullInbox(50, { waitMs: 2_000, timeoutMs: 3_000 })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  const waitingReceipt = await planner.sendMessage({
+    to: 'reviewer',
+    body: 'Wake the waiting reviewer',
+    idempotencyKey: newIdempotencyKey()
+  })
+  const waitingMessages = await waitingInbox
+  assert.equal(waitingMessages.length, 1)
+  assert.equal(waitingMessages[0].id, waitingReceipt.messageId)
+  assert.equal(await reviewer.acknowledgeMessages([waitingMessages[0].id]), 1)
   const task = await planner.addTask('Review integration')
   const completed = await withClaimedTask(reviewer, task.id, async () => 'reviewed', (value) => value)
   assert.equal(completed.task.status, 'done')

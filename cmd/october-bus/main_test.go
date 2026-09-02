@@ -239,7 +239,7 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	if initial.State != bus.DeliveryQueued {
 		t.Fatalf("expected initial state queued, got %q", initial.State)
 	}
-	inbox, err := receiver.PullInbox(ctx, 10)
+	inbox, err := receiver.PullInbox(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("pull: %v", err)
 	}

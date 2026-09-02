@@ -66,7 +66,7 @@ func TestDurableRequestRedeliveryAcknowledgementAndReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil || len(reservation.Messages) != 1 {
 		t.Fatalf("unexpected reservation: %#v, %v", reservation, err)
 	}
@@ -74,7 +74,7 @@ func TestDurableRequestRedeliveryAcknowledgementAndReply(t *testing.T) {
 	if err != nil || first[0].State != DeliveryDelivered {
 		t.Fatalf("unexpected delivery: %#v, %v", first, err)
 	}
-	redelivery, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	redelivery, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || redelivery == nil || redelivery.Messages[0].ID != receipt.MessageID {
 		t.Fatalf("unexpected redelivery: %#v, %v", redelivery, err)
 	}
@@ -117,7 +117,7 @@ func TestMessageIdempotencyRejectsPayloadChanges(t *testing.T) {
 	input.Body = "Review something else"
 	_, err = agents.runtime.SendMessage(ctx, agents.plannerToken, input)
 	requireCode(t, err, CodeConflict)
-	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil || len(reservation.Messages) != 1 {
 		t.Fatalf("idempotent retry created duplicate work: %#v, %v", reservation, err)
 	}
@@ -146,7 +146,7 @@ func TestResponsesRequireDeliveryButMayFinishAfterExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected reservation: %#v, %v", reservation, err)
 	}
@@ -176,7 +176,7 @@ func TestExpiredReservationCannotDeliverOrResurrectMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected reservation: %#v, %v", reservation, err)
 	}
@@ -194,7 +194,7 @@ func TestExpiredReservationCannotDeliverOrResurrectMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err = agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err = agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected second reservation: %#v, %v", reservation, err)
 	}
@@ -213,7 +213,7 @@ func TestExpiredReservationCannotDeliverOrResurrectMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err = agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err = agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected third reservation: %#v, %v", reservation, err)
 	}
@@ -401,7 +401,7 @@ func TestSQLitePreservesAcceptedWorkAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	reservation, err := restarted.ReserveInbox(ctx, agents.reviewerToken, 10)
+	reservation, err := restarted.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil || reservation.Messages[0].ID != receipt.MessageID {
 		t.Fatalf("message did not survive restart: %#v, %v", reservation, err)
 	}
@@ -631,16 +631,23 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := reviewerClient.ReserveInbox(ctx, 10)
+	reservation, err := reviewerClient.ReserveInbox(ctx, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected HTTP reservation: %#v, %v", reservation, err)
 	}
 	if err := reviewerClient.ReleaseInbox(ctx, reservation.ID); err != nil {
 		t.Fatal(err)
 	}
-	reservation, err = reviewerClient.ReserveInbox(ctx, 10)
+	reservation, err = reviewerClient.ReserveInbox(ctx, 10, 0)
 	if err != nil || reservation == nil || reservation.Messages[0].ID != receipt.MessageID {
 		t.Fatalf("released inbox was not available again: %#v, %v", reservation, err)
+	}
+	delivered, err := reviewerClient.CommitInbox(ctx, reservation.ID)
+	if err != nil || len(delivered) != 1 {
+		t.Fatalf("unexpected committed inbox: %#v, %v", delivered, err)
+	}
+	if _, err := reviewerClient.AcknowledgeMessages(ctx, []string{receipt.MessageID}); err != nil {
+		t.Fatal(err)
 	}
 	httpClient := &http.Client{Transport: bearerTransport{token: agents.plannerToken, base: http.DefaultTransport}, Timeout: 10 * time.Second}
 	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
@@ -674,6 +681,39 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	}
 	if _, ok := structured["tasks"].([]any); !ok {
 		t.Fatalf("MCP list_tasks must return a tasks array: %#v", result.StructuredContent)
+	}
+	type callResult struct {
+		result *mcp.CallToolResult
+		err    error
+	}
+	waiting := make(chan callResult, 1)
+	go func() {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "check_inbox", Arguments: map[string]any{"waitMs": 2000}})
+		waiting <- callResult{result: result, err: err}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	wakeReceipt, err := reviewerClient.SendMessage(ctx, SendMessageInput{To: "planner", Body: "Wake MCP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case call := <-waiting:
+		if call.err != nil || call.result.IsError {
+			t.Fatalf("MCP check_inbox failed: %#v, %v", call.result, call.err)
+		}
+		structured, ok := call.result.StructuredContent.(map[string]any)
+		if !ok {
+			t.Fatalf("MCP check_inbox structured content must be an object: %#v", call.result.StructuredContent)
+		}
+		messages, ok := structured["messages"].([]any)
+		if !ok || len(messages) != 1 {
+			t.Fatalf("MCP check_inbox must return one message: %#v", call.result.StructuredContent)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := plannerClient.AcknowledgeMessages(ctx, []string{wakeReceipt.MessageID}); err != nil {
+		t.Fatal(err)
 	}
 }
 

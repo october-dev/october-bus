@@ -49,6 +49,14 @@ await reviewer.acknowledgeMessages(messages.map((message) => message.id))
 console.log(receipt.messageId, messages)
 ```
 
+An idle agent can wait for new work without a polling loop:
+
+```ts
+const messages = await reviewer.pullInbox(50, { waitMs: 25_000 })
+```
+
+The server caps each wait at 25 seconds. Cancellation through `AbortSignal` does not reserve or lose a message.
+
 Scope credentials create agents and handle human escalations. Agent credentials discover peers, exchange messages, coordinate tasks, and ask for human input.
 
 Operations time out after 30 seconds by default. Pass `{ timeoutMs, signal }` as the final method argument to set a shorter deadline or cancel a request.
@@ -57,4 +65,4 @@ Generate a new idempotency key for each logical send. Keys remain bound to their
 
 `OctoberBusAgentSession` manages registration, conservative lifecycle state, heartbeat, execution replacement, and shutdown cleanup for adapters that use the TypeScript client.
 
-`pollInbox` provides abortable polling with bounded backoff. `withClaimedTask` releases a claim when work or completion fails. Use both with a live agent session so the execution lease remains current while work is claimed.
+`pollInbox` provides an abortable async iterator over repeated bounded inbox waits. `withClaimedTask` releases a claim when work or completion fails. Use both with a live agent session so the execution lease remains current while work is claimed.

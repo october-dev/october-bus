@@ -128,8 +128,12 @@ func (c Client) Receipt(ctx context.Context, messageID string) (DeliveryReceipt,
 	return request[DeliveryReceipt](ctx, c, http.MethodGet, "/v1/messages/"+url.PathEscape(messageID), nil)
 }
 
-func (c Client) ReserveInbox(ctx context.Context, limit int) (*InboxReservation, error) {
-	return request[*InboxReservation](ctx, c, http.MethodPost, "/v1/inbox/reserve", map[string]int{"limit": limit})
+func (c Client) ReserveInbox(ctx context.Context, limit int, wait time.Duration) (*InboxReservation, error) {
+	waitMS := wait.Milliseconds()
+	if wait > 0 && waitMS == 0 {
+		waitMS = 1
+	}
+	return request[*InboxReservation](ctx, c, http.MethodPost, "/v1/inbox/reserve", map[string]any{"limit": limit, "waitMs": waitMS})
 }
 
 func (c Client) CommitInbox(ctx context.Context, reservationID string) ([]Message, error) {
@@ -141,8 +145,8 @@ func (c Client) ReleaseInbox(ctx context.Context, reservationID string) error {
 	return err
 }
 
-func (c Client) PullInbox(ctx context.Context, limit int) ([]Message, error) {
-	reservation, err := c.ReserveInbox(ctx, limit)
+func (c Client) PullInbox(ctx context.Context, limit int, wait time.Duration) ([]Message, error) {
+	reservation, err := c.ReserveInbox(ctx, limit, wait)
 	if err != nil || reservation == nil {
 		return nil, err
 	}

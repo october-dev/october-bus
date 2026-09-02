@@ -27,6 +27,8 @@ type ServerOptions struct {
 type Server struct {
 	runtime      *Runtime
 	options      ServerOptions
+	waitContext  context.Context
+	cancelWaits  context.CancelFunc
 	httpServer   *http.Server
 	listener     net.Listener
 	mcpHandler   http.Handler
@@ -47,8 +49,10 @@ func NewServer(runtime *Runtime, options ServerOptions) *Server {
 	if options.StartedAt == "" {
 		options.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	waitContext, cancelWaits := context.WithCancel(context.Background())
 	server := &Server{
 		runtime: runtime, options: options,
+		waitContext: waitContext, cancelWaits: cancelWaits,
 		serveDone: make(chan error, 1), shutdown: make(chan struct{}),
 	}
 	server.mcpHandler = mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
@@ -105,6 +109,7 @@ func (s *Server) requestShutdown() {
 func (s *Server) Stop(ctx context.Context) error {
 	var stopErr error
 	s.closeOnce.Do(func() {
+		s.cancelWaits()
 		if s.listener != nil {
 			stopErr = s.httpServer.Shutdown(ctx)
 		}
@@ -114,6 +119,19 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.address = ""
 	})
 	return stopErr
+}
+
+func (s *Server) inboxWaitContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	stop := context.AfterFunc(s.waitContext, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
+
+func (s *Server) inboxWaitStopped(parent context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) && parent.Err() == nil && s.waitContext.Err() != nil
 }
 
 func bearer(request *http.Request) (string, error) {
@@ -207,11 +225,17 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 			return nil, result, err
 		})
 	type inboxInput struct {
-		Limit int `json:"limit,omitempty"`
+		Limit  int   `json:"limit,omitempty"`
+		WaitMS int64 `json:"waitMs,omitempty" jsonschema:"wait for messages for up to 25000 milliseconds"`
 	}
-	mcp.AddTool(server, &mcp.Tool{Name: "check_inbox", Description: "Receive durable messages waiting for this agent."},
+	mcp.AddTool(server, &mcp.Tool{Name: "check_inbox", Description: "Receive durable messages waiting for this agent. Pass waitMs up to 25000 to wait for new messages instead of polling."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input inboxInput) (*mcp.CallToolResult, any, error) {
-			reservation, err := s.runtime.ReserveInbox(ctx, token, input.Limit)
+			waitContext, cancel := s.inboxWaitContext(ctx)
+			defer cancel()
+			reservation, err := s.runtime.ReserveInbox(waitContext, token, input.Limit, input.WaitMS)
+			if s.inboxWaitStopped(ctx, err) {
+				return nil, map[string]any{"messages": []Message{}}, nil
+			}
 			if err != nil || reservation == nil {
 				if reservation == nil && err == nil {
 					return nil, map[string]any{"messages": []Message{}}, nil

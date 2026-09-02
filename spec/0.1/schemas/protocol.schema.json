@@ -222,6 +222,14 @@
         "responseMessageId": { "$ref": "#/$defs/identifier" }
       }
     },
+    "reserveInboxInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "waitMs": { "type": "integer", "minimum": 0, "maximum": 25000 }
+      }
+    },
     "inboxReservation": {
       "type": "object",
       "additionalProperties": false,

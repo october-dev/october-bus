@@ -82,6 +82,8 @@ queued -> reserved -> delivered -> acknowledged
 
 Reservations prevent two concurrent delivery attempts from consuming the same inbox item. A reservation expires after 30 seconds in the reference runtime. Releasing or expiring a reservation makes an undelivered message available again. Delivered but unacknowledged messages MAY be redelivered.
 
+An inbox reservation request MAY wait for work with `waitMs`. The reference profile allows values from 0 through 25000. The wait ends when work becomes reservable, its deadline passes, the caller cancels, the server stops, or the execution loses authority. A timeout returns no reservation and does not consume work.
+
 Acknowledgement means the recipient reports that it processed the message. Clients SHOULD acknowledge only after processing succeeds.
 
 ### Idempotency

@@ -74,17 +74,19 @@ assert.equal(releasedTask, 'task_failure')
 
 let inboxPolls = 0
 const pollingClient = {
-  async pullInbox() {
+  async pullInbox(limit, options) {
+    assert.equal(limit, 50)
+    assert.equal(options.waitMs, 25_000)
     inboxPolls += 1
     return inboxPolls === 1 ? [] : [{ id: 'message_1' }]
   }
 }
-const inbox = pollInbox(pollingClient, { intervalMs: 1, maxIntervalMs: 2, backoffFactor: 2 })
+const inbox = pollInbox(pollingClient)
 const polled = await inbox.next()
 assert.equal(polled.done, false)
 assert.equal(polled.value[0].id, 'message_1')
 await inbox.return()
-await assert.rejects(() => pollInbox(pollingClient, { intervalMs: 0 }).next(), /intervalMs must be positive/)
+await assert.rejects(() => pollInbox(pollingClient, { waitMs: 0 }).next(), /waitMs must be an integer between 1 and 25000/)
 
 const server = createServer((_request, response) => {
   response.writeHead(502, { 'content-type': 'text/plain' })

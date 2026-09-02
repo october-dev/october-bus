@@ -96,6 +96,13 @@ func TestProtocolSchemas(t *testing.T) {
 		"to": "planner", "body": "Unexpected correlation", "mode": "notify", "responseTo": "msg_123",
 	})
 
+	reserve := resolvedSchema(t, path, "reserveInboxInput")
+	requireValid(t, reserve, map[string]any{"limit": float64(50), "waitMs": float64(25000)})
+	requireValid(t, reserve, map[string]any{})
+	requireValid(t, reserve, map[string]any{"limit": float64(0), "waitMs": float64(0)})
+	requireInvalid(t, reserve, map[string]any{"waitMs": float64(25001)})
+	requireInvalid(t, reserve, map[string]any{"waitMs": float64(1.5)})
+
 	task := resolvedSchema(t, path, "task")
 	requireValid(t, task, map[string]any{
 		"id": "task_123", "scopeId": "scope", "description": "Review",
@@ -126,7 +133,7 @@ func TestAdapterManifestsMatchSchema(t *testing.T) {
 	requireInvalid(t, schema, map[string]any{
 		"schemaVersion": float64(1), "id": "unproven", "harnessFamily": "Unknown",
 		"adapterVersion": "0.1.0",
-		"status": "verified", "protocolVersions": []any{"0.1"}, "transport": "mcp",
+		"status":         "verified", "protocolVersions": []any{"0.1"}, "transport": "mcp",
 		"delivery": "pull", "lifecycleEvidence": "process", "capabilities": []any{},
 		"testedVersions": []any{}, "platforms": []any{"linux"}, "maintainer": "October",
 		"repository": "https://github.com/october-dev/october-bus",
@@ -221,7 +228,7 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "deliveryReceipt"), jsonValue(t, receipt))
-	messages, err := reviewer.PullInbox(ctx, 10)
+	messages, err := reviewer.PullInbox(ctx, 10, 0)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("unexpected messages: %#v, %v", messages, err)
 	}

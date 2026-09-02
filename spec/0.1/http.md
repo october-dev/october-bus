@@ -61,6 +61,8 @@ Failures use:
 | `POST` | `/v1/scope/escalations/{escalationId}/resolve` | Scope | Resolved escalation |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
+`POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
+
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 
 ```text
