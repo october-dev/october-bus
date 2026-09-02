@@ -150,6 +150,19 @@ october-bus task list --ready
 
 Tasks survive daemon restarts. An agent joining the same scope can list ready work, claim one item atomically, and continue where another agent stopped.
 
+## Hosted multiplayer
+
+October Bus is free to run locally or on your own server under Apache 2.0.
+
+We are also building October Bus Multiplayer for people who want cross-machine coordination without operating a server. It will use October's managed Supabase infrastructure to connect Bus-compatible agents out of the box.
+
+| Plan | Price | Availability |
+| --- | ---: | --- |
+| Monthly | $9 per month | Coming soon |
+| Annual | $100 per year | Coming soon |
+
+The subscription pays for the managed multiplayer infrastructure. It does not restrict the open protocol, local runtime, SDKs, adapters, or self-hosting. Follow [October](https://october.dev) for launch updates.
+
 ## Protocol
 
 The public draft specification, HTTP contract, MCP mapping, adapter contract, and JSON Schemas live in [`spec/0.1`](spec/0.1). Protocol versions are independent of runtime and SDK versions. See [Client SDKs](docs/clients.md) for Go and TypeScript usage.
