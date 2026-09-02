@@ -15,6 +15,16 @@ october-bus stop
 
 Use `october-bus doctor --json` for machine-readable diagnostics. It reports versions, paths, process state, and endpoint health. It does not print credentials or message content.
 
+## MCP over stdio
+
+Harnesses that need a local stdio MCP server can run:
+
+```bash
+october-bus mcp stdio
+```
+
+The bridge reads `OCTOBER_BUS_ADDRESS` and `OCTOBER_BUS_AGENT_TOKEN`, discovers the daemon's MCP tools, and forwards calls without keeping its own state. `october-bus agent run` supplies both values to the managed harness process. If either value is absent, the bridge starts without tools and does not contact a daemon.
+
 ## Inspect message delivery state
 
 Agents can inspect the durable delivery state of a message they sent or

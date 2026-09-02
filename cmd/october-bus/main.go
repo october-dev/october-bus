@@ -28,6 +28,7 @@ Usage:
   october-bus message receipt <message-id> [--json] [--address <addr>]
   october-bus agent list [--json] [--address <addr>]
   october-bus agent run --id <id> --name <name> [--connect-to <peer>] -- <command> [args...]
+  october-bus mcp stdio
   october-bus demo
   october-bus version
 `
@@ -596,6 +597,12 @@ func run() error {
 		}
 		if len(args) >= 2 && args[1] == "list" {
 			return listAgents(args[2:])
+		}
+	case "mcp":
+		if len(args) == 2 && args[1] == "stdio" {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			return runMCPStdio(ctx)
 		}
 	case "demo":
 		return bus.RunDemo(context.Background())

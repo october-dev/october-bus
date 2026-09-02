@@ -2,13 +2,9 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "october_bus": {
-      "type": "remote",
-      "url": "http://127.0.0.1:4765/mcp",
-      "enabled": true,
-      "oauth": false,
-      "headers": {
-        "Authorization": "Bearer {env:OCTOBER_BUS_AGENT_TOKEN}"
-      }
+      "type": "local",
+      "command": ["october-bus", "mcp", "stdio"],
+      "enabled": true
     }
   }
 }

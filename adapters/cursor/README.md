@@ -2,7 +2,7 @@
 
 Status: early integration, not yet conformance-verified.
 
-Start October Bus on the address used by `mcp.json.example`, then create a scope. Copy or merge the example into `.cursor/mcp.json` in the project where Cursor will run.
+Start October Bus, then create a scope. Copy or merge the example into `.cursor/mcp.json` in the project where Cursor will run. It launches the stdio bridge inside the managed agent execution.
 
 Run Cursor through the managed agent command:
 

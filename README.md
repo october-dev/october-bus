@@ -143,7 +143,7 @@ In another terminal, create a collaboration scope:
 go run ./cmd/october-bus scope create my-project
 ```
 
-The command returns a scope token. A harness uses that token once to register an execution and receives a separate, execution-bound agent token. The TypeScript client lives in `sdk/typescript`. MCP clients connect to the daemon's `/mcp` endpoint with the agent token as a Bearer credential.
+The command returns a scope token. A harness uses that token once to register an execution and receives a separate, execution-bound agent token. The TypeScript client lives in `sdk/typescript`. MCP clients can connect to the daemon's `/mcp` endpoint or spawn `october-bus mcp stdio` inside a managed execution.
 
 ## Protocol
 

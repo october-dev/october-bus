@@ -4,6 +4,8 @@ October Bus uses MCP Streamable HTTP as an agent-facing integration surface. MCP
 
 The endpoint is `/mcp` and requires an execution-bound agent Bearer token. An MCP session does not register an agent or renew its lease. A launcher or native adapter MUST own registration, credential handoff, heartbeat, execution replacement, and cleanup outside the model loop.
 
+The reference CLI can forward this same MCP surface over stdio with `october-bus mcp stdio`. The bridge does not add authority or keep separate Bus state.
+
 ## Required tools
 
 | Tool | Protocol operation |

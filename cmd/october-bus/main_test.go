@@ -5,15 +5,144 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/october-dev/october-bus/bus"
 )
+
+func TestMCPStdioHelper(t *testing.T) {
+	if os.Getenv("OCTOBER_BUS_MCP_STDIO_TEST_HELPER") != "1" {
+		return
+	}
+	if err := runMCPStdio(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func mcpBridgeCommand(address, token string, stderr io.Writer) *exec.Cmd {
+	command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
+	command.Env = setEnvironment(removeEnvironment(os.Environ(),
+		"OCTOBER_BUS_ADDRESS",
+		"OCTOBER_BUS_AGENT_TOKEN",
+		"OCTOBER_BUS_SCOPE_TOKEN",
+		"OCTOBER_BUS_ADMIN_TOKEN",
+	),
+		"OCTOBER_BUS_MCP_STDIO_TEST_HELPER", "1",
+		"OCTOBER_BUS_ADDRESS", address,
+		"OCTOBER_BUS_AGENT_TOKEN", token,
+	)
+	command.Stderr = stderr
+	return command
+}
+
+func connectMCPBridge(t *testing.T, ctx context.Context, address, token string) (*mcp.ClientSession, *bytes.Buffer) {
+	t.Helper()
+	stderr := new(bytes.Buffer)
+	client := mcp.NewClient(&mcp.Implementation{Name: "bridge-test", Version: "1"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: mcpBridgeCommand(address, token, stderr)}, nil)
+	if err != nil {
+		t.Fatalf("connect to stdio bridge: %v; stderr: %s", err, stderr.String())
+	}
+	return session, stderr
+}
+
+func callMCPBridgeTool(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string, arguments map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
+	if err != nil || result.IsError {
+		t.Fatalf("call %s: %#v, %v", name, result, err)
+	}
+	return result
+}
+
+func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	address, _, senderToken, receiverToken, cleanup := startTestServer(t, ctx, "stdio-forwarding")
+	defer cleanup()
+	session, stderr := connectMCPBridge(t, ctx, address, senderToken)
+	defer session.Close()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil || len(tools.Tools) != 11 {
+		t.Fatalf("unexpected forwarded tools: %d, %v; stderr: %s", len(tools.Tools), err, stderr.String())
+	}
+	directClient := mcp.NewClient(&mcp.Implementation{Name: "direct-test", Version: "1"}, nil)
+	directSession, err := directClient.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: address + "/mcp",
+		HTTPClient: &http.Client{Transport: agentTokenTransport{
+			token: senderToken,
+			base:  http.DefaultTransport,
+		}},
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directSession.Close()
+	directTools, err := directSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwardedJSON, err := json.Marshal(tools.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directJSON, err := json.Marshal(directTools.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(forwardedJSON, directJSON) {
+		t.Fatalf("stdio bridge changed the daemon tool definitions\nforwarded: %s\ndirect: %s", forwardedJSON, directJSON)
+	}
+	callMCPBridgeTool(t, ctx, session, "list_peers", map[string]any{})
+	callMCPBridgeTool(t, ctx, session, "message_peer", map[string]any{"peer": "receiver", "message": "Forwarded over stdio"})
+	messages, err := (bus.Client{Address: address, Token: receiverToken}).PullInbox(ctx, 10, 0)
+	if err != nil || len(messages) != 1 || messages[0].Body != "Forwarded over stdio" {
+		t.Fatalf("unexpected forwarded message: %#v, %v", messages, err)
+	}
+	callMCPBridgeTool(t, ctx, session, "add_task", map[string]any{"description": "Forward a task"})
+	callMCPBridgeTool(t, ctx, session, "ask_user", map[string]any{"question": "Continue?"})
+}
+
+func TestMCPStdioBridgeStartsWithoutRuntimeIdentity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, stderr := connectMCPBridge(t, ctx, "http://127.0.0.1:1", "")
+	initial := session.InitializeResult()
+	if initial == nil || !strings.Contains(initial.Instructions, "not running inside a managed agent execution") {
+		t.Fatalf("unexpected bridge instructions: %#v", initial)
+	}
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil || len(tools.Tools) != 0 {
+		t.Fatalf("unexpected tools without identity: %#v, %v; stderr: %s", tools, err, stderr.String())
+	}
+	if err := session.Close(); err != nil {
+		t.Fatalf("stdio bridge did not stop cleanly when input closed: %v", err)
+	}
+}
+
+func TestMCPStdioBridgeRejectsUnavailableDaemon(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stderr := new(bytes.Buffer)
+	client := mcp.NewClient(&mcp.Implementation{Name: "bridge-test", Version: "1"}, nil)
+	_, err := client.Connect(ctx, &mcp.CommandTransport{Command: mcpBridgeCommand("http://127.0.0.1:1", "agent-token", stderr)}, nil)
+	if err == nil || !strings.Contains(stderr.String(), "could not connect to October Bus") {
+		t.Fatalf("expected unavailable daemon error, got %v; stderr: %s", err, stderr.String())
+	}
+}
 
 func TestAgentRunHelper(t *testing.T) {
 	if os.Getenv("OCTOBER_BUS_TEST_HELPER") != "1" {
