@@ -372,6 +372,32 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		return result, err
 	}
 
+	if err := record.check("storage-diagnostics-and-retention", func() error {
+		summary, err := owner.StorageSummary(ctx)
+		if err != nil || len(summary.Records) == 0 || summary.TotalEstimatedBytes == 0 {
+			return fmt.Errorf("unexpected storage summary: %#v, %v", summary, err)
+		}
+		_, err = planner.StorageSummary(ctx)
+		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
+			return err
+		}
+		before := time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
+		dryRun, err := owner.PruneScope(ctx, bus.PruneScopeInput{Before: before})
+		if err != nil || !dryRun.DryRun {
+			return fmt.Errorf("unexpected retention dry run: %#v, %v", dryRun, err)
+		}
+		if dryRun.Records.Messages+dryRun.Records.Tasks+dryRun.Records.Escalations == 0 {
+			return errors.New("retention dry run found no terminal records")
+		}
+		executed, err := owner.PruneScope(ctx, bus.PruneScopeInput{Before: before, Execute: true})
+		if err != nil || executed.DryRun || executed.Records != dryRun.Records {
+			return fmt.Errorf("unexpected retention execution: %#v, %v", executed, err)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("scope-isolation", func() error {
 		otherScope, err := admin.CreateScope(ctx, bus.CreateScopeInput{ID: scopeID + "-other"})
 		if err != nil {

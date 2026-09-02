@@ -59,11 +59,15 @@ Failures use:
 | `GET` | `/v1/escalations/{escalationId}` | Agent | Escalation in the scope |
 | `GET` | `/v1/scope/escalations` | Scope | Escalations in the scope |
 | `POST` | `/v1/scope/escalations/{escalationId}/resolve` | Scope | Resolved escalation |
+| `GET` | `/v1/scope/storage` | Scope | Counts, estimated bytes, and oldest timestamps |
+| `POST` | `/v1/scope/storage/prune` | Scope | Dry-run or executed retention result |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 
 `GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
+
+`POST /v1/scope/storage/prune` requires an RFC 3339 `before` timestamp. Omitted or false `execute` performs a dry run. `execute=true` removes the reported terminal records in one transaction.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

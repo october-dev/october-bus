@@ -134,6 +134,10 @@ func TestProtocolSchemas(t *testing.T) {
 		"createdBy": "planner", "status": "claimed", "dependencies": []any{},
 		"ready": false, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
 	})
+
+	prune := resolvedSchema(t, path, "pruneScopeInput")
+	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z"})
+	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z", "execute": true})
 }
 
 func TestAdapterManifestsMatchSchema(t *testing.T) {
@@ -258,6 +262,16 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "task"), jsonValue(t, task))
+	storage, err := owner.StorageSummary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "storageSummary"), jsonValue(t, storage))
+	pruneResult, err := owner.PruneScope(ctx, bus.PruneScopeInput{Before: "2026-08-01T00:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "pruneScopeResult"), jsonValue(t, pruneResult))
 	escalation, err := reviewer.AskHuman(ctx, bus.AskHumanInput{Question: "Proceed?", Options: []string{"yes", "no"}})
 	if err != nil {
 		t.Fatal(err)

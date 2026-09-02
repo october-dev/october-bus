@@ -289,6 +289,62 @@
         }
       ]
     },
+    "storageRecordSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "state", "count", "estimatedBytes"],
+      "properties": {
+        "recordType": { "type": "string", "enum": ["message", "task", "escalation"] },
+        "state": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 0 },
+        "estimatedBytes": { "type": "integer", "minimum": 0 },
+        "oldestAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "storageSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeId", "generatedAt", "totalEstimatedBytes", "records"],
+      "properties": {
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "generatedAt": { "$ref": "#/$defs/instant" },
+        "totalEstimatedBytes": { "type": "integer", "minimum": 0 },
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/storageRecordSummary" }
+        }
+      }
+    },
+    "pruneScopeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before"],
+      "properties": {
+        "before": { "$ref": "#/$defs/instant" },
+        "execute": { "type": "boolean" }
+      }
+    },
+    "retentionCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "tasks", "escalations"],
+      "properties": {
+        "messages": { "type": "integer", "minimum": 0 },
+        "tasks": { "type": "integer", "minimum": 0 },
+        "escalations": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "pruneScopeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeId", "before", "dryRun", "records"],
+      "properties": {
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "before": { "$ref": "#/$defs/instant" },
+        "dryRun": { "type": "boolean" },
+        "records": { "$ref": "#/$defs/retentionCounts" }
+      }
+    },
     "askHumanInput": {
       "type": "object",
       "additionalProperties": false,

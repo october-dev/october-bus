@@ -42,6 +42,9 @@ const task = await scope.addTask({
   description: 'Check idempotency and error handling.'
 })
 const readyTasks = await scope.listTasks({ ready: true })
+const storage = await scope.storageSummary()
+
+const dryRun = await scope.pruneScope({ before: '2026-08-01T00:00:00Z' })
 
 const receipt = await planner.sendMessage({
   to: 'reviewer',

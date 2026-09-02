@@ -113,6 +113,39 @@ type Task struct {
 	UpdatedAt    string   `json:"updatedAt"`
 }
 
+type StorageRecordSummary struct {
+	RecordType     string `json:"recordType"`
+	State          string `json:"state"`
+	Count          int64  `json:"count"`
+	EstimatedBytes int64  `json:"estimatedBytes"`
+	OldestAt       string `json:"oldestAt,omitempty"`
+}
+
+type StorageSummary struct {
+	ScopeID             string                 `json:"scopeId"`
+	GeneratedAt         string                 `json:"generatedAt"`
+	TotalEstimatedBytes int64                  `json:"totalEstimatedBytes"`
+	Records             []StorageRecordSummary `json:"records"`
+}
+
+type PruneScopeInput struct {
+	Before  string `json:"before"`
+	Execute bool   `json:"execute,omitempty"`
+}
+
+type RetentionCounts struct {
+	Messages    int64 `json:"messages"`
+	Tasks       int64 `json:"tasks"`
+	Escalations int64 `json:"escalations"`
+}
+
+type PruneScopeResult struct {
+	ScopeID string          `json:"scopeId"`
+	Before  string          `json:"before"`
+	DryRun  bool            `json:"dryRun"`
+	Records RetentionCounts `json:"records"`
+}
+
 type HumanEscalation struct {
 	ID         string   `json:"id"`
 	ScopeID    string   `json:"scopeId"`

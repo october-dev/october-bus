@@ -368,6 +368,26 @@ func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) (
 	return r.store.ListTasks(ctx, scopeID, readyOnly)
 }
 
+func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (StorageSummary, error) {
+	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	if err != nil {
+		return StorageSummary{}, err
+	}
+	return r.store.StorageSummary(ctx, scopeID)
+}
+
+func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input PruneScopeInput) (PruneScopeResult, error) {
+	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	if err != nil {
+		return PruneScopeResult{}, err
+	}
+	before, err := time.Parse(time.RFC3339, input.Before)
+	if err != nil {
+		return PruneScopeResult{}, Errorf(CodeInvalidArgument, "before must be an RFC 3339 timestamp")
+	}
+	return r.store.PruneScope(ctx, scopeID, before.UnixMilli(), input.Execute)
+}
+
 func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID, createdBy string, err error) {
 	principal, agentErr := r.Principal(ctx, token)
 	if agentErr == nil {

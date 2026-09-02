@@ -13,9 +13,12 @@ import type {
   DeliveryReceipt,
   HumanEscalation,
   InboxReservation,
+  PruneScopeInput,
+  PruneScopeResult,
   RegisterAgentInput,
   RegisterAgentResult,
-  SendMessageInput
+  SendMessageInput,
+  StorageSummary
 } from './protocol.js'
 
 interface Success<T> {
@@ -156,6 +159,14 @@ export class OctoberBusScopeClient {
     const { ready, ...operationOptions } = options
     const query = ready ? '?ready=true' : ''
     return request(this.address, this.scopeToken, 'GET', `/v1/tasks${query}`, undefined, operationOptions)
+  }
+
+  storageSummary(options?: OperationOptions): Promise<StorageSummary> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/scope/storage', undefined, options)
+  }
+
+  pruneScope(input: PruneScopeInput, options?: OperationOptions): Promise<PruneScopeResult> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/scope/storage/prune', input, options)
   }
 
   listEscalations(options?: OperationOptions): Promise<HumanEscalation[]> {

@@ -170,6 +170,7 @@ The public draft specification, HTTP contract, MCP mapping, adapter contract, an
 | Shared tasks | People and agents can add work; agents can claim, release, complete, and depend on tasks |
 | Context | Agents exchange explicit, bounded context instead of a global transcript |
 | Human escalation | Agents can request input or permission without inventing authority |
+| Storage controls | Scope owners can inspect growth and prune old terminal records without dropping active obligations |
 
 ### Delivery and replies
 
