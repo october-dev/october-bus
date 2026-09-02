@@ -118,6 +118,12 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/scope/escalations/{escalationId}/resolve",
 		routeMethod{http.MethodPost, s.resolveEscalation},
 	)
+	registerRoute(router, "/v1/scope/storage",
+		routeMethod{http.MethodGet, s.storageSummary},
+	)
+	registerRoute(router, "/v1/scope/storage/prune",
+		routeMethod{http.MethodPost, s.pruneScope},
+	)
 	return router
 }
 
@@ -452,6 +458,36 @@ func (s *Server) completeTask(response http.ResponseWriter, request *http.Reques
 		return err
 	}
 	result, err := s.runtime.CompleteTask(request.Context(), token, request.PathValue("taskId"), input.Note)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) storageSummary(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	result, err := s.runtime.StorageSummary(request.Context(), token)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) pruneScope(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	var input PruneScopeInput
+	if err := decodeBody(response, request, &input); err != nil {
+		return err
+	}
+	result, err := s.runtime.PruneScope(request.Context(), token, input)
 	if err != nil {
 		return err
 	}

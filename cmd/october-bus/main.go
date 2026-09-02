@@ -25,11 +25,13 @@ Usage:
   october-bus status
   october-bus doctor [--json]
   october-bus scope create [scope-id]
+  october-bus scope storage [--json] [--address <addr>]
+  october-bus scope prune --before <timestamp> [--yes] [--json] [--address <addr>]
   october-bus message receipt <message-id> [--json] [--address <addr>]
   october-bus agent list [--json] [--address <addr>]
   october-bus agent run --id <id> --name <name> [--connect-to <peer>] -- <command> [args...]
-	  october-bus task add --title <title> [--description <text>] [--depends-on <task-id>] [--json] [--address <addr>]
-	  october-bus task list [--ready] [--json] [--address <addr>]
+  october-bus task add --title <title> [--description <text>] [--depends-on <task-id>] [--json] [--address <addr>]
+  october-bus task list [--ready] [--json] [--address <addr>]
   october-bus mcp stdio
   october-bus demo
   october-bus version
@@ -427,7 +429,7 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-func taskScopeClient(address string) (bus.Client, error) {
+func scopeClient(address string) (bus.Client, error) {
 	token := os.Getenv("OCTOBER_BUS_SCOPE_TOKEN")
 	if token == "" {
 		return bus.Client{}, errors.New("OCTOBER_BUS_SCOPE_TOKEN is required")
@@ -457,7 +459,7 @@ func addTask(args []string) error {
 	if strings.TrimSpace(*title) == "" {
 		return errors.New("task add requires --title")
 	}
-	client, err := taskScopeClient(*address)
+	client, err := scopeClient(*address)
 	if err != nil {
 		return err
 	}
@@ -491,7 +493,7 @@ func listTasks(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("task list does not accept positional arguments")
 	}
-	client, err := taskScopeClient(*address)
+	client, err := scopeClient(*address)
 	if err != nil {
 		return err
 	}
@@ -532,6 +534,105 @@ func printTasksHuman(tasks []bus.Task) error {
 		if task.ClaimedBy != "" {
 			fmt.Printf("  claimed by: %s\n", task.ClaimedBy)
 		}
+	}
+	return nil
+}
+
+func scopeStorage(args []string) error {
+	flags := flag.NewFlagSet("scope storage", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("scope storage does not accept positional arguments")
+	}
+	client, err := scopeClient(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	summary, err := client.StorageSummary(ctx)
+	if err != nil {
+		return fmt.Errorf("could not inspect scope storage: %w", err)
+	}
+	if *jsonOutput {
+		encoded, err := json.MarshalIndent(summary, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(encoded))
+		return nil
+	}
+	return printStorageSummaryHuman(summary)
+}
+
+func printStorageSummaryHuman(summary bus.StorageSummary) error {
+	fmt.Printf("Storage for scope %s\n", summary.ScopeID)
+	if len(summary.Records) == 0 {
+		fmt.Println("No messages, tasks, or escalations.")
+	} else {
+		for _, record := range summary.Records {
+			fmt.Printf("%s/%s: %d records, %d estimated bytes", record.RecordType, record.State, record.Count, record.EstimatedBytes)
+			if record.OldestAt != "" {
+				fmt.Printf(", oldest %s", record.OldestAt)
+			}
+			fmt.Println()
+		}
+	}
+	fmt.Printf("Total estimated bytes: %d\n", summary.TotalEstimatedBytes)
+	return nil
+}
+
+func scopePrune(args []string) error {
+	flags := flag.NewFlagSet("scope prune", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	before := flags.String("before", "", "remove terminal records older than this RFC 3339 timestamp")
+	execute := flags.Bool("yes", false, "execute the retention operation")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("scope prune does not accept positional arguments")
+	}
+	if *before == "" {
+		return errors.New("scope prune requires --before")
+	}
+	client, err := scopeClient(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := client.PruneScope(ctx, bus.PruneScopeInput{Before: *before, Execute: *execute})
+	if err != nil {
+		return fmt.Errorf("could not prune scope: %w", err)
+	}
+	if *jsonOutput {
+		encoded, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(encoded))
+		return nil
+	}
+	return printPruneResultHuman(result)
+}
+
+func printPruneResultHuman(result bus.PruneScopeResult) error {
+	action := "Would remove"
+	if !result.DryRun {
+		action = "Removed"
+	}
+	fmt.Printf("%s %d messages, %d tasks, and %d escalations older than %s.\n",
+		action, result.Records.Messages, result.Records.Tasks, result.Records.Escalations, result.Before)
+	if result.DryRun {
+		fmt.Println("Dry run only. Pass --yes to remove these records.")
 	}
 	return nil
 }
@@ -697,6 +798,12 @@ func run() error {
 				id = args[2]
 			}
 			return createScope(id)
+		}
+		if len(args) >= 2 && args[1] == "storage" {
+			return scopeStorage(args[2:])
+		}
+		if len(args) >= 2 && args[1] == "prune" {
+			return scopePrune(args[2:])
 		}
 	case "message":
 		if len(args) >= 2 && args[1] == "receipt" {

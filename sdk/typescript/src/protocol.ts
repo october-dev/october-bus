@@ -142,6 +142,39 @@ export interface AddTaskInput {
   dependencies?: TaskId[]
 }
 
+export interface StorageRecordSummary {
+  recordType: 'message' | 'task' | 'escalation'
+  state: string
+  count: number
+  estimatedBytes: number
+  oldestAt?: string
+}
+
+export interface StorageSummary {
+  scopeId: ScopeId
+  generatedAt: string
+  totalEstimatedBytes: number
+  records: StorageRecordSummary[]
+}
+
+export interface PruneScopeInput {
+  before: string
+  execute?: boolean
+}
+
+export interface RetentionCounts {
+  messages: number
+  tasks: number
+  escalations: number
+}
+
+export interface PruneScopeResult {
+  scopeId: ScopeId
+  before: string
+  dryRun: boolean
+  records: RetentionCounts
+}
+
 export interface AskHumanInput {
   question: string
   options?: string[]

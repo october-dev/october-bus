@@ -170,6 +170,14 @@ func (c Client) ListTasks(ctx context.Context, readyOnly bool) ([]Task, error) {
 	return request[[]Task](ctx, c, http.MethodGet, path, nil)
 }
 
+func (c Client) StorageSummary(ctx context.Context) (StorageSummary, error) {
+	return request[StorageSummary](ctx, c, http.MethodGet, "/v1/scope/storage", nil)
+}
+
+func (c Client) PruneScope(ctx context.Context, input PruneScopeInput) (PruneScopeResult, error) {
+	return request[PruneScopeResult](ctx, c, http.MethodPost, "/v1/scope/storage/prune", input)
+}
+
 func (c Client) ClaimTask(ctx context.Context, taskID string) (Task, error) {
 	return request[Task](ctx, c, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/claim", map[string]any{})
 }

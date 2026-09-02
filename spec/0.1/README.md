@@ -90,7 +90,7 @@ Acknowledgement means the recipient reports that it processed the message. Clien
 
 An idempotency key is scoped to one sender inside one scope. Retrying the same logical send with the same key and identical content MUST return the original receipt. Reusing the key with different content MUST return `CONFLICT`.
 
-Keys are permanent for the sender. SDKs SHOULD generate a new UUID for every logical send and MUST NOT recycle keys.
+An idempotency key remains bound to its message for as long as that message is retained. SDKs SHOULD generate a new UUID for every logical send and MUST NOT intentionally recycle keys. An operator's retention cutoff MUST be longer than every client retry window it needs to support.
 
 ### Requests and responses
 
@@ -122,6 +122,14 @@ The claimant MUST keep its execution lease current. When an execution expires or
 
 The reference runtime limits a scope to 5,000 tasks that are not done.
 
+## Storage and retention
+
+Accepted work is retained indefinitely by default. Scope authority MAY inspect record counts, estimated payload bytes, and oldest state timestamps without reading record content.
+
+Explicit retention can remove only terminal records older than a caller-provided cutoff. It MUST preserve active delivery, reply, task, and human obligations. A request and response MUST be removed together, and only after both are terminal. A delivered request without a response remains eligible for a late response and MUST NOT be removed. A completed task MUST NOT be removed while an unfinished task depends on it.
+
+Retention MUST support a dry run and report exact record counts. The reference CLI requires `--yes` before deletion.
+
 ## Human escalation
 
 An agent MAY create an escalation with a question and either no options or two to four options. Creating an escalation does not grant the agent permission or answer the question.
@@ -133,7 +141,7 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, add and list tasks, list and resolve escalations |
+| Scope token | Register and list agents, create peer links, add and list tasks, inspect and prune storage, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.

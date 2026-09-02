@@ -59,6 +59,27 @@ The output includes each agent's id, display name, lifecycle, readiness,
 reachability, capabilities, and last update time. Results are sorted by agent
 id. Use `--json` for machine-readable output.
 
+## Storage and retention
+
+Scope owners can inspect storage growth without reading message, task, or escalation content:
+
+```bash
+export OCTOBER_BUS_SCOPE_TOKEN=<scope-token>
+october-bus scope storage
+```
+
+The summary groups record counts and estimated payload bytes by state. It also reports the oldest state timestamp. Payload sizes are estimates and do not include SQLite indexes or other database overhead.
+
+Retention is explicit and keeps indefinite storage as the default. First run a dry run:
+
+```bash
+october-bus scope prune --before 2026-08-01T00:00:00Z
+```
+
+Pass `--yes` to remove the reported records in one transaction. Only terminal messages, completed tasks, and resolved escalations can be removed. Requests and responses are removed together. Work with an outstanding delivery, reply, task, dependency, or human obligation is preserved.
+
+Choose a cutoff older than the longest client retry window you support. Removing a message also removes its idempotency-key binding.
+
 ## Default paths
 
 | Platform | Data directory | Runtime directory |

@@ -689,6 +689,68 @@ func TestTaskListQuotesUntrustedText(t *testing.T) {
 	}
 }
 
+func TestScopeStorageCommandsDefaultToDryRun(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	address, scopeToken, senderToken, _, cleanup := startTestServer(t, ctx, "storage-cli-e2e")
+	defer cleanup()
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scopeToken)
+	owner := bus.Client{Address: address, Token: scopeToken}
+	task, err := owner.AddTask(ctx, bus.AddTaskInput{Title: "Old completed work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := bus.Client{Address: address, Token: senderToken}
+	if _, err := agent.ClaimTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.CompleteTask(ctx, task.ID, "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	var storageOutput bytes.Buffer
+	if err := captureStdout(&storageOutput, func() error {
+		return scopeStorage([]string{"--json", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var summary bus.StorageSummary
+	if err := json.Unmarshal(storageOutput.Bytes(), &summary); err != nil || summary.ScopeID != "storage-cli-e2e" {
+		t.Fatalf("unexpected storage summary: %#v, %v", summary, err)
+	}
+
+	cutoff := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	var dryOutput bytes.Buffer
+	if err := captureStdout(&dryOutput, func() error {
+		return scopePrune([]string{"--before", cutoff, "--json", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var dryRun bus.PruneScopeResult
+	if err := json.Unmarshal(dryOutput.Bytes(), &dryRun); err != nil || !dryRun.DryRun || dryRun.Records.Tasks != 1 {
+		t.Fatalf("unexpected dry run: %#v, %v", dryRun, err)
+	}
+	if tasks, err := owner.ListTasks(ctx, false); err != nil || len(tasks) != 1 {
+		t.Fatalf("dry run removed task: %#v, %v", tasks, err)
+	}
+
+	if err := captureStdout(&bytes.Buffer{}, func() error {
+		return scopePrune([]string{"--before", cutoff, "--yes", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if tasks, err := owner.ListTasks(ctx, false); err != nil || len(tasks) != 0 {
+		t.Fatalf("confirmed prune kept task: %#v, %v", tasks, err)
+	}
+}
+
+func TestScopePruneRequiresCutoff(t *testing.T) {
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", "unused")
+	if err := scopePrune(nil); err == nil || !strings.Contains(err.Error(), "requires --before") {
+		t.Fatalf("expected cutoff error, got %v", err)
+	}
+}
+
 func captureStdout(output *bytes.Buffer, run func() error) error {
 	original := os.Stdout
 	reader, writer, err := os.Pipe()

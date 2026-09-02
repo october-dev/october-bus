@@ -7,7 +7,7 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
-- scope token for agent registration, peer links, project task management, and human escalation resolution;
+- scope token for agent registration, peer links, project task management, storage controls, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
@@ -33,6 +33,7 @@ peers, err := agent.ListPeers(ctx)
 messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
 
 ownerTasks, err := owner.ListTasks(ctx, true)
+storage, err := owner.StorageSummary(ctx)
 ```
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
