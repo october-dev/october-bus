@@ -10,6 +10,7 @@ An archive preserves:
 - shared tasks, dependencies, ownership of completed tasks, and progress history;
 - human escalations and answers;
 - Agent Card publication identities;
+- A2A tasks and their Bus message correlations;
 - output streams, publisher assignments, retained values, and cursors.
 
 An archive never contains scope tokens, agent tokens, scoped credentials, credential hashes, execution IDs, leases, reservations, rate-limit counters, or host process evidence.
@@ -22,7 +23,7 @@ Imported agents are offline and receive no usable agent credential. Registering 
 
 The event log is local projection history and is not portable. Import creates a new event stream containing one `scope.imported` event. Event consumers must rebuild their projection from the restored resources.
 
-Scoped A2A and output principals are not portable. Create new principals after import. Output values written by an old principal retain its opaque producer ID as historical attribution, but that ID grants no authority.
+Scoped A2A and output credentials are not portable. A2A principal IDs are replaced by stable archive-only identifiers so task and message relationships remain intact without moving authority. Imported A2A history cannot be invoked by a new credential. Create new principals after import. Output values written by an old principal retain its opaque producer ID as historical attribution, but that ID grants no authority.
 
 ## Atomic and idempotent import
 
@@ -36,7 +37,7 @@ The initial archive identifier is:
 
 ```text
 format: october-bus.scope
-version: 1
+version: 2
 ```
 
 New archive versions require an explicit reader implementation. Readers must reject versions they do not support.

@@ -28,7 +28,7 @@ SDK versions and A2A protocol versions are independent. The bridge records both.
 - Remote principals are bound to one publication. Their credentials do not inherit scope, agent, MCP, or administrative authority.
 - October Bus shared work items are a coordination pool. They are not A2A Tasks. A2A Tasks represent one delegated interaction and its result stream.
 
-The reference daemon stores owner-controlled publications and scoped remote principals, then serves enabled Agent Cards at opaque URLs. It does not implement A2A message or task operations yet.
+The reference daemon stores owner-controlled publications, scoped remote principals, and durable A2A task correlations. Each accepted A2A message maps to one Bus request and its optional linked response. The HTTP+JSON message interface is implemented separately from this storage contract.
 
 Principal credentials are stored as one-way digests and shown only when created or rotated. Rotation invalidates the previous value immediately. Both the principal and its publication must be enabled for authentication to succeed.
 

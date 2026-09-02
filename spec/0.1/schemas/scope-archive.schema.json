@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/october-dev/october-bus/spec/0.1/schemas/scope-archive.schema.json",
-  "title": "October Bus portable scope archive 1",
+  "title": "October Bus portable scope archive 2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "version", "exportedAt", "scope", "agents", "links", "messages", "tasks", "taskProgress", "escalations", "agentCardPublications", "outputStreams", "outputValues"],
+  "required": ["format", "version", "exportedAt", "scope", "agents", "links", "messages", "tasks", "taskProgress", "escalations", "agentCardPublications", "a2aTasks", "a2aMessages", "outputStreams", "outputValues"],
   "properties": {
     "format": { "const": "october-bus.scope" },
-    "version": { "const": 1 },
+    "version": { "const": 2 },
     "exportedAt": { "$ref": "#/$defs/instant" },
     "scope": { "$ref": "#/$defs/scope" },
     "agents": { "type": "array", "items": { "$ref": "#/$defs/agent" } },
@@ -17,6 +17,8 @@
     "taskProgress": { "type": "array", "items": { "$ref": "#/$defs/taskProgress" } },
     "escalations": { "type": "array", "items": { "$ref": "#/$defs/escalation" } },
     "agentCardPublications": { "type": "array", "items": { "$ref": "#/$defs/agentCard" } },
+    "a2aTasks": { "type": "array", "items": { "$ref": "#/$defs/a2aTask" } },
+    "a2aMessages": { "type": "array", "items": { "$ref": "#/$defs/a2aMessage" } },
     "outputStreams": { "type": "array", "items": { "$ref": "#/$defs/outputStream" } },
     "outputValues": { "type": "array", "items": { "$ref": "#/$defs/outputValue" } }
   },
@@ -78,11 +80,13 @@
     "message": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "from", "to", "mode", "body", "context", "state", "createdAt"],
+      "required": ["id", "from", "fromKind", "to", "toKind", "mode", "body", "context", "state", "createdAt"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "from": { "$ref": "#/$defs/identifier" },
+        "fromKind": { "type": "string", "enum": ["agent", "a2aPrincipal"] },
         "to": { "$ref": "#/$defs/identifier" },
+        "toKind": { "type": "string", "enum": ["agent", "a2aPrincipal"] },
         "mode": { "type": "string", "enum": ["notify", "request", "response"] },
         "body": { "type": "string", "minLength": 1, "maxLength": 65536 },
         "context": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/contextItem" } },
@@ -157,6 +161,35 @@
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "agentId": { "$ref": "#/$defs/identifier" },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "a2aTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "contextId", "principalId", "publicationId", "targetAgentId", "state", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "contextId": { "$ref": "#/$defs/identifier" },
+        "principalId": { "$ref": "#/$defs/identifier" },
+        "publicationId": { "$ref": "#/$defs/identifier" },
+        "targetAgentId": { "$ref": "#/$defs/identifier" },
+        "state": { "type": "string", "enum": ["submitted", "working", "input-required", "completed", "failed", "canceled", "rejected"] },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "a2aMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principalId", "clientMessageId", "taskId", "busRequestMessageId", "createdAt", "updatedAt"],
+      "properties": {
+        "principalId": { "$ref": "#/$defs/identifier" },
+        "clientMessageId": { "$ref": "#/$defs/identifier" },
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "busRequestMessageId": { "$ref": "#/$defs/identifier" },
+        "busResponseMessageId": { "$ref": "#/$defs/identifier" },
         "createdAt": { "$ref": "#/$defs/instant" },
         "updatedAt": { "$ref": "#/$defs/instant" }
       }

@@ -74,6 +74,8 @@ Message modes are `notify`, `request`, and `response`. An omitted mode means `no
 
 A successful send means the runtime durably accepted the message. It does not mean the recipient read or processed it.
 
+Every message identifies the kind and ID of its sender and recipient. Protocol 0.1 supports registered agents and scoped A2A principals. Agent-to-agent messages still require an explicit peer link. An A2A principal can address only the agent named by its publication.
+
 Delivery states are:
 
 ```text
@@ -153,6 +155,7 @@ Protocol 0.1 defines these event types:
 - `task.created`, `task.claimed`, `task.released`, `task.completed`, and `task.progress_added`
 - `escalation.created` and `escalation.resolved`
 - `a2a.publication_created`, `a2a.publication_enabled`, and `a2a.publication_disabled`
+- `a2a.task_created`, `a2a.message_accepted`, and `a2a.task_state_changed`
 - `credential.created`, `credential.rotated`, `credential.enabled`, and `credential.disabled`
 - `output.stream_created`, `output.stream_removed`, `output.publisher_added`, `output.publisher_removed`, and `output.published`
 - `scope.imported`
@@ -178,6 +181,16 @@ A scope owner MAY create remote principals for an Agent Card publication. Each p
 Rotating a principal invalidates its previous credential immediately without changing the principal ID. Disabling a principal suspends its current credential, and re-enabling it restores that credential unless it was rotated. Disabling the publication also prevents its principals from authenticating.
 
 A scoped A2A credential grants no access to the Bus HTTP API, MCP endpoint, scope authority, agent authority, other publications, or daemon administration. Implementations MUST store a one-way digest instead of the plaintext credential and compare presented credentials in constant time.
+
+### Durable A2A task correlation
+
+An A2A Task and an October Bus shared task are different resources. An A2A Task represents one remote delegated interaction. A Bus shared task is work that any eligible agent can claim.
+
+The bridge stores each A2A task, its context ID, remote principal, publication, target agent, state, and message correlations. Every accepted A2A client message maps to one Bus request. That request can have at most one Bus response. A client can add the next message while the task is `input-required`, without weakening the Bus one-response rule.
+
+A2A task states are `submitted`, `working`, `input-required`, `completed`, `failed`, `canceled`, and `rejected`. Delivery of the first pending Bus request advances `submitted` to `working`. A Bus response completes the task unless it is waiting for input. An undelivered request that expires fails the task. Terminal tasks are immutable.
+
+Client message IDs are idempotent within one remote principal. Repeating an accepted message returns its existing task and Bus correlation. Reusing the ID with different content returns `CONFLICT`. A principal cannot read or change another principal's task records.
 
 ## Output streams
 

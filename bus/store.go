@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 8
+	schemaVersion                = 9
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -115,8 +115,10 @@ CREATE TABLE peer_links (
 CREATE TABLE messages (
   message_id TEXT PRIMARY KEY,
   scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  from_agent TEXT NOT NULL,
-  to_agent TEXT NOT NULL,
+  from_kind TEXT NOT NULL CHECK(from_kind IN ('agent','a2aPrincipal')),
+  from_id TEXT NOT NULL,
+  to_kind TEXT NOT NULL CHECK(to_kind IN ('agent','a2aPrincipal')),
+  to_id TEXT NOT NULL,
   mode TEXT NOT NULL CHECK(mode IN ('notify','request','response')),
   body TEXT NOT NULL,
   context_json TEXT NOT NULL,
@@ -131,13 +133,11 @@ CREATE TABLE messages (
   acknowledged_at INTEGER,
   replied_at INTEGER,
   response_message_id TEXT,
-  FOREIGN KEY(scope_id, from_agent) REFERENCES agents(scope_id, agent_id),
-  FOREIGN KEY(scope_id, to_agent) REFERENCES agents(scope_id, agent_id),
   FOREIGN KEY(response_to) REFERENCES messages(message_id)
 );
-CREATE INDEX messages_inbox ON messages(scope_id, to_agent, state, created_at);
-CREATE INDEX messages_sender ON messages(scope_id, from_agent, created_at DESC);
-CREATE UNIQUE INDEX messages_idempotency ON messages(scope_id, from_agent, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX messages_inbox ON messages(scope_id, to_kind, to_id, state, created_at);
+CREATE INDEX messages_sender ON messages(scope_id, from_kind, from_id, created_at DESC);
+CREATE UNIQUE INDEX messages_idempotency ON messages(scope_id, from_kind, from_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE reservations (
   reservation_id TEXT PRIMARY KEY,
   scope_id TEXT NOT NULL,
@@ -213,6 +213,32 @@ CREATE TABLE a2a_publications (
 	FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX a2a_publications_scope_created ON a2a_publications(scope_id, created_at);
+CREATE TABLE a2a_tasks (
+	task_id TEXT PRIMARY KEY,
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	context_id TEXT NOT NULL,
+	principal_id TEXT NOT NULL,
+	publication_id TEXT NOT NULL REFERENCES a2a_publications(publication_id) ON DELETE CASCADE,
+	target_agent_id TEXT NOT NULL,
+	state TEXT NOT NULL CHECK(state IN ('submitted','working','input-required','completed','failed','canceled','rejected')),
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	FOREIGN KEY(scope_id,target_agent_id) REFERENCES agents(scope_id,agent_id)
+);
+CREATE INDEX a2a_tasks_principal_updated ON a2a_tasks(principal_id,updated_at DESC);
+CREATE INDEX a2a_tasks_scope_state ON a2a_tasks(scope_id,state,updated_at DESC);
+CREATE TABLE a2a_message_correlations (
+	principal_id TEXT NOT NULL,
+	client_message_id TEXT NOT NULL,
+	task_id TEXT NOT NULL REFERENCES a2a_tasks(task_id) ON DELETE CASCADE,
+	request_hash TEXT NOT NULL,
+	bus_request_message_id TEXT NOT NULL UNIQUE REFERENCES messages(message_id),
+	bus_response_message_id TEXT UNIQUE REFERENCES messages(message_id),
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	PRIMARY KEY(principal_id,client_message_id)
+);
+CREATE INDEX a2a_messages_task_created ON a2a_message_correlations(task_id,created_at,client_message_id);
 CREATE TABLE scoped_credentials (
 	credential_id TEXT PRIMARY KEY,
 	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
@@ -272,7 +298,7 @@ CREATE TABLE output_rate_usage (
 	PRIMARY KEY(scope_id,principal_type,principal_id,window_start)
 );
 CREATE INDEX output_rate_usage_window ON output_rate_usage(window_start);
-PRAGMA user_version=8;
+PRAGMA user_version=9;
 COMMIT;`)
 	return err
 }
@@ -623,16 +649,10 @@ WHERE l.scope_id=? AND (l.left_agent=? OR l.right_agent=?) ORDER BY a.registered
 }
 
 func (s *Store) linked(ctx context.Context, tx *sql.Tx, scopeID, left, right string) (bool, error) {
-	a, b := orderedPeers(left, right)
-	var found int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM peer_links WHERE scope_id=? AND left_agent=? AND right_agent=?`, scopeID, a, b).Scan(&found)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
+	return linkedAgents(ctx, tx, scopeID, left, right)
 }
 
-const messageColumns = `message_id,scope_id,from_agent,to_agent,mode,body,context_json,response_to,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id`
+const messageColumns = `message_id,scope_id,from_kind,from_id,to_kind,to_id,mode,body,context_json,response_to,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id`
 
 func scanMessage(row rowScanner) (Message, error) {
 	var message Message
@@ -640,7 +660,7 @@ func scanMessage(row rowScanner) (Message, error) {
 	var responseTo, responseMessageID sql.NullString
 	var expiresAt, deliveredAt, acknowledgedAt, repliedAt sql.NullInt64
 	var createdAt int64
-	err := row.Scan(&message.ID, &message.ScopeID, &message.From, &message.To, &message.Mode, &message.Body, &contextJSON,
+	err := row.Scan(&message.ID, &message.ScopeID, &message.FromKind, &message.From, &message.ToKind, &message.To, &message.Mode, &message.Body, &contextJSON,
 		&responseTo, &message.State, &createdAt, &expiresAt, &deliveredAt, &acknowledgedAt, &repliedAt, &responseMessageID)
 	if err != nil {
 		return Message{}, err
@@ -670,18 +690,19 @@ func receiptFromMessage(message Message) DeliveryReceipt {
 }
 
 func expireMessages(ctx context.Context, tx *sql.Tx, scopeID string, now int64) error {
-	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_agent,to_agent,mode FROM messages WHERE scope_id=? AND expires_at IS NOT NULL AND expires_at<=? AND state NOT IN ('acknowledged','expired')`, scopeID, now)
+	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_id,to_id,mode,delivered_at FROM messages WHERE scope_id=? AND expires_at IS NOT NULL AND expires_at<=? AND state NOT IN ('acknowledged','expired')`, scopeID, now)
 	if err != nil {
 		return err
 	}
 	type expiringMessage struct {
 		id, from, to string
 		mode         MessageMode
+		deliveredAt  sql.NullInt64
 	}
 	values := []expiringMessage{}
 	for rows.Next() {
 		var value expiringMessage
-		if err := rows.Scan(&value.id, &value.from, &value.to, &value.mode); err != nil {
+		if err := rows.Scan(&value.id, &value.from, &value.to, &value.mode, &value.deliveredAt); err != nil {
 			rows.Close()
 			return err
 		}
@@ -699,6 +720,13 @@ func expireMessages(ctx context.Context, tx *sql.Tx, scopeID string, now int64) 
 		}
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
+			if !value.deliveredAt.Valid {
+				if err := transitionA2ATaskForMessage(ctx, tx, scopeID, value.id, func(state A2ATaskState) (A2ATaskState, bool) {
+					return A2ATaskFailed, !a2aTaskTerminal(state)
+				}, now); err != nil {
+					return err
+				}
+			}
 			if err := appendEvent(ctx, tx, scopeID, "message.expired", value.id, eventAttributes(
 				"from", value.from, "to", value.to, "mode", string(value.mode), "state", string(DeliveryExpired),
 			), now); err != nil {
@@ -723,118 +751,162 @@ func messageRequestHash(input SendMessageInput, mode MessageMode, contextJSON st
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Store) SendMessage(ctx context.Context, principal Principal, input SendMessageInput) (DeliveryReceipt, error) {
+func sendMessageTx(ctx context.Context, tx *sql.Tx, scopeID string, senderKind MessageParticipantKind, senderID string, input SendMessageInput) (Message, error) {
 	mode := input.Mode
 	if mode == "" {
 		mode = MessageNotify
 	}
 	contextJSON, err := jsonValue(input.Context)
 	if err != nil {
-		return DeliveryReceipt{}, err
+		return Message{}, err
 	}
 	requestHash := messageRequestHash(input, mode, contextJSON)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return DeliveryReceipt{}, err
-	}
-	defer tx.Rollback()
-	linked, err := s.linked(ctx, tx, principal.ScopeID, principal.AgentID, input.To)
-	if err != nil {
-		return DeliveryReceipt{}, err
-	}
-	if !linked {
-		return DeliveryReceipt{}, Errorf(CodePermissionDenied, "Agent "+input.To+" is not a linked peer")
-	}
+	toKind := MessageParticipantAgent
 	now := nowMillis()
-	if err := expireMessages(ctx, tx, principal.ScopeID, now); err != nil {
-		return DeliveryReceipt{}, err
+	if err := expireMessages(ctx, tx, scopeID, now); err != nil {
+		return Message{}, err
 	}
 	if input.IdempotencyKey != "" {
 		var existingID, existingHash string
-		err := tx.QueryRowContext(ctx, `SELECT message_id,request_hash FROM messages WHERE scope_id=? AND from_agent=? AND idempotency_key=?`,
-			principal.ScopeID, principal.AgentID, input.IdempotencyKey).Scan(&existingID, &existingHash)
+		err := tx.QueryRowContext(ctx, `SELECT message_id,request_hash FROM messages WHERE scope_id=? AND from_kind=? AND from_id=? AND idempotency_key=?`,
+			scopeID, senderKind, senderID, input.IdempotencyKey).Scan(&existingID, &existingHash)
 		if err == nil {
 			if existingHash != requestHash {
-				return DeliveryReceipt{}, Errorf(CodeConflict, "Idempotency key was already used with different message content")
+				return Message{}, Errorf(CodeConflict, "Idempotency key was already used with different message content")
 			}
 			message, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE message_id=?`, existingID))
-			if err != nil {
-				return DeliveryReceipt{}, err
-			}
-			return receiptFromMessage(message), nil
+			return message, err
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return DeliveryReceipt{}, err
+			return Message{}, err
 		}
-	}
-	var backlog int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE scope_id=? AND state NOT IN ('acknowledged','expired')`, principal.ScopeID).Scan(&backlog); err != nil {
-		return DeliveryReceipt{}, err
-	}
-	if backlog >= messageBacklogCap {
-		return DeliveryReceipt{}, Errorf(CodeBackpressure, "Scope message backlog is full")
-	}
-	messageID, err := randomID("msg_")
-	if err != nil {
-		return DeliveryReceipt{}, err
-	}
-	if err := appendEvent(ctx, tx, principal.ScopeID, "message.accepted", messageID, eventAttributes(
-		"from", principal.AgentID, "to", input.To, "mode", string(mode), "state", string(DeliveryQueued), "responseTo", input.ResponseTo,
-	), now); err != nil {
-		return DeliveryReceipt{}, err
 	}
 	if mode == MessageResponse {
 		if input.ResponseTo == "" {
-			return DeliveryReceipt{}, Errorf(CodeInvalidArgument, "responseTo is required for a response")
+			return Message{}, Errorf(CodeInvalidArgument, "responseTo is required for a response")
 		}
+		var requestFromKind, requestToKind MessageParticipantKind
+		var requestFrom, requestTo string
 		var state DeliveryState
 		var deliveredAt, repliedAt sql.NullInt64
-		err := tx.QueryRowContext(ctx, `SELECT state,delivered_at,replied_at FROM messages WHERE message_id=? AND scope_id=? AND mode='request' AND from_agent=? AND to_agent=?`,
-			input.ResponseTo, principal.ScopeID, input.To, principal.AgentID).Scan(&state, &deliveredAt, &repliedAt)
+		err := tx.QueryRowContext(ctx, `SELECT from_kind,from_id,to_kind,to_id,state,delivered_at,replied_at FROM messages WHERE message_id=? AND scope_id=? AND mode='request'`,
+			input.ResponseTo, scopeID).Scan(&requestFromKind, &requestFrom, &requestToKind, &requestTo, &state, &deliveredAt, &repliedAt)
 		if errors.Is(err, sql.ErrNoRows) {
-			return DeliveryReceipt{}, Errorf(CodeNotFound, "The response request was not found for these peers")
+			return Message{}, Errorf(CodeNotFound, "The response request was not found for these participants")
 		}
 		if err != nil {
-			return DeliveryReceipt{}, err
+			return Message{}, err
+		}
+		if requestToKind != senderKind || requestTo != senderID || requestFrom != input.To {
+			return Message{}, Errorf(CodeNotFound, "The response request was not found for these participants")
 		}
 		if !deliveredAt.Valid {
 			if state == DeliveryExpired {
-				return DeliveryReceipt{}, Errorf(CodeConflict, "The request expired before delivery")
+				return Message{}, Errorf(CodeConflict, "The request expired before delivery")
 			}
-			return DeliveryReceipt{}, Errorf(CodeConflict, "The request has not been delivered")
+			return Message{}, Errorf(CodeConflict, "The request has not been delivered")
 		}
 		if repliedAt.Valid {
-			return DeliveryReceipt{}, Errorf(CodeConflict, "The request already has a response")
+			return Message{}, Errorf(CodeConflict, "The request already has a response")
 		}
+		toKind = requestFromKind
 	} else if input.ResponseTo != "" {
-		return DeliveryReceipt{}, Errorf(CodeInvalidArgument, "responseTo is valid only for a response")
+		return Message{}, Errorf(CodeInvalidArgument, "responseTo is valid only for a response")
+	}
+	if senderKind == MessageParticipantAgent && toKind == MessageParticipantAgent {
+		linked, err := linkedAgents(ctx, tx, scopeID, senderID, input.To)
+		if err != nil {
+			return Message{}, err
+		}
+		if !linked {
+			return Message{}, Errorf(CodePermissionDenied, "Agent "+input.To+" is not a linked peer")
+		}
+	} else if toKind == MessageParticipantAgent {
+		var found int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM agents WHERE scope_id=? AND agent_id=?`, scopeID, input.To).Scan(&found); errors.Is(err, sql.ErrNoRows) {
+			return Message{}, Errorf(CodeNotFound, "Agent "+input.To+" was not found")
+		} else if err != nil {
+			return Message{}, err
+		}
+	}
+	var backlog int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE scope_id=? AND state NOT IN ('acknowledged','expired')`, scopeID).Scan(&backlog); err != nil {
+		return Message{}, err
+	}
+	if backlog >= messageBacklogCap {
+		return Message{}, Errorf(CodeBackpressure, "Scope message backlog is full")
+	}
+	messageID, err := randomID("msg_")
+	if err != nil {
+		return Message{}, err
+	}
+	initialState := DeliveryQueued
+	var deliveredAt, acknowledgedAt any
+	if toKind == MessageParticipantA2APrincipal {
+		initialState = DeliveryAcknowledged
+		deliveredAt, acknowledgedAt = now, now
+	}
+	if err := appendEvent(ctx, tx, scopeID, "message.accepted", messageID, eventAttributes(
+		"from", senderID, "fromKind", string(senderKind), "to", input.To, "toKind", string(toKind), "mode", string(mode), "state", string(initialState), "responseTo", input.ResponseTo,
+	), now); err != nil {
+		return Message{}, err
 	}
 	var expiresAt any
 	if input.ExpiresInMS > 0 {
 		expiresAt = now + input.ExpiresInMS
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO messages(message_id,scope_id,from_agent,to_agent,mode,body,context_json,response_to,idempotency_key,request_hash,state,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,'queued',?,?)`,
-		messageID, principal.ScopeID, principal.AgentID, input.To, mode, input.Body, contextJSON, nullableString(input.ResponseTo), nullableString(input.IdempotencyKey), nullableString(requestHash), now, expiresAt)
+	_, err = tx.ExecContext(ctx, `INSERT INTO messages(message_id,scope_id,from_kind,from_id,to_kind,to_id,mode,body,context_json,response_to,idempotency_key,request_hash,state,created_at,expires_at,delivered_at,acknowledged_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		messageID, scopeID, senderKind, senderID, toKind, input.To, mode, input.Body, contextJSON, nullableString(input.ResponseTo), nullableString(input.IdempotencyKey), requestHash, initialState, now, expiresAt, deliveredAt, acknowledgedAt)
 	if err != nil {
-		return DeliveryReceipt{}, err
+		return Message{}, err
 	}
 	if mode == MessageResponse {
-		result, err := tx.ExecContext(ctx, `UPDATE messages SET replied_at=?,response_message_id=? WHERE message_id=? AND scope_id=? AND from_agent=? AND to_agent=? AND replied_at IS NULL`,
-			now, messageID, input.ResponseTo, principal.ScopeID, input.To, principal.AgentID)
+		result, err := tx.ExecContext(ctx, `UPDATE messages SET replied_at=?,response_message_id=? WHERE message_id=? AND scope_id=? AND from_kind=? AND from_id=? AND to_kind=? AND to_id=? AND replied_at IS NULL`,
+			now, messageID, input.ResponseTo, scopeID, toKind, input.To, senderKind, senderID)
 		if err != nil {
-			return DeliveryReceipt{}, err
+			return Message{}, err
 		}
 		changed, _ := result.RowsAffected()
 		if changed != 1 {
-			return DeliveryReceipt{}, Errorf(CodeConflict, "The request already has a response")
+			return Message{}, Errorf(CodeConflict, "The request already has a response")
 		}
-		if err := appendEvent(ctx, tx, principal.ScopeID, "message.replied", input.ResponseTo, eventAttributes(
-			"responseMessageId", messageID, "from", input.To, "to", principal.AgentID,
+		if err := appendEvent(ctx, tx, scopeID, "message.replied", input.ResponseTo, eventAttributes(
+			"responseMessageId", messageID, "from", input.To, "to", senderID,
 		), now); err != nil {
-			return DeliveryReceipt{}, err
+			return Message{}, err
+		}
+		if toKind == MessageParticipantA2APrincipal {
+			if _, err := tx.ExecContext(ctx, `UPDATE a2a_message_correlations SET bus_response_message_id=?,updated_at=? WHERE bus_request_message_id=?`, messageID, now, input.ResponseTo); err != nil {
+				return Message{}, err
+			}
+			if err := transitionA2ATaskForMessage(ctx, tx, scopeID, input.ResponseTo, func(state A2ATaskState) (A2ATaskState, bool) {
+				return A2ATaskCompleted, state != A2ATaskInputRequired && !a2aTaskTerminal(state)
+			}, now); err != nil {
+				return Message{}, err
+			}
 		}
 	}
 	message, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE message_id=?`, messageID))
+	return message, err
+}
+
+func linkedAgents(ctx context.Context, tx *sql.Tx, scopeID, left, right string) (bool, error) {
+	a, b := orderedPeers(left, right)
+	var found int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM peer_links WHERE scope_id=? AND left_agent=? AND right_agent=?`, scopeID, a, b).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *Store) SendMessage(ctx context.Context, principal Principal, input SendMessageInput) (DeliveryReceipt, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return DeliveryReceipt{}, err
+	}
+	defer tx.Rollback()
+	message, err := sendMessageTx(ctx, tx, principal.ScopeID, MessageParticipantAgent, principal.AgentID, input)
 	if err != nil {
 		return DeliveryReceipt{}, err
 	}
@@ -860,7 +932,7 @@ func (s *Store) Receipt(ctx context.Context, principal Principal, messageID stri
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return DeliveryReceipt{}, err
 	}
-	message, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE message_id=? AND scope_id=? AND (from_agent=? OR to_agent=?)`,
+	message, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE message_id=? AND scope_id=? AND ((from_kind='agent' AND from_id=?) OR (to_kind='agent' AND to_id=?))`,
 		messageID, principal.ScopeID, principal.AgentID, principal.AgentID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return DeliveryReceipt{}, Errorf(CodeNotFound, "Message "+messageID+" was not found")
@@ -875,7 +947,7 @@ func (s *Store) Receipt(ctx context.Context, principal Principal, messageID stri
 }
 
 func releaseReservation(ctx context.Context, tx *sql.Tx, scopeID, agentID, reservationID string) error {
-	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_agent,to_agent,mode,CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END FROM messages WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved'`, reservationID, scopeID, agentID)
+	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_id,to_id,mode,CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END FROM messages WHERE reservation_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state='reserved'`, reservationID, scopeID, agentID)
 	if err != nil {
 		return err
 	}
@@ -898,7 +970,7 @@ func releaseReservation(ctx context.Context, tx *sql.Tx, scopeID, agentID, reser
 		return err
 	}
 	rows.Close()
-	if _, err := tx.ExecContext(ctx, `UPDATE messages SET state=CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END,reservation_id=NULL WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved'`, reservationID, scopeID, agentID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE messages SET state=CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END,reservation_id=NULL WHERE reservation_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state='reserved'`, reservationID, scopeID, agentID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM reservations WHERE reservation_id=? AND scope_id=? AND agent_id=?`, reservationID, scopeID, agentID); err != nil {
@@ -958,7 +1030,7 @@ func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int
 			return nil, err
 		}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE scope_id=? AND to_agent=? AND state IN ('queued','delivered') AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at LIMIT ?`,
+	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE scope_id=? AND to_kind='agent' AND to_id=? AND state IN ('queued','delivered') AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at LIMIT ?`,
 		principal.ScopeID, principal.AgentID, now, limit)
 	if err != nil {
 		return nil, err
@@ -988,7 +1060,7 @@ func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int
 		return nil, err
 	}
 	for i := range messages {
-		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='reserved',reservation_id=? WHERE message_id=? AND scope_id=? AND to_agent=? AND state IN ('queued','delivered')`,
+		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='reserved',reservation_id=? WHERE message_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state IN ('queued','delivered')`,
 			reservationID, messages[i].ID, principal.ScopeID, principal.AgentID)
 		if err != nil {
 			return nil, err
@@ -1044,7 +1116,7 @@ func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservatio
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved' ORDER BY created_at`, reservationID, principal.ScopeID, principal.AgentID)
+	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE reservation_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state='reserved' ORDER BY created_at`, reservationID, principal.ScopeID, principal.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,7 +1131,7 @@ func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservatio
 	}
 	rows.Close()
 	deliveredAt := nowMillis()
-	if _, err := tx.ExecContext(ctx, `UPDATE messages SET state='delivered',delivered_at=COALESCE(delivered_at,?),reservation_id=NULL WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved'`,
+	if _, err := tx.ExecContext(ctx, `UPDATE messages SET state='delivered',delivered_at=COALESCE(delivered_at,?),reservation_id=NULL WHERE reservation_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state='reserved'`,
 		deliveredAt, reservationID, principal.ScopeID, principal.AgentID); err != nil {
 		return nil, err
 	}
@@ -1067,6 +1139,13 @@ func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservatio
 		return nil, err
 	}
 	for _, message := range messages {
+		if message.FromKind == MessageParticipantA2APrincipal {
+			if err := transitionA2ATaskForMessage(ctx, tx, principal.ScopeID, message.ID, func(state A2ATaskState) (A2ATaskState, bool) {
+				return A2ATaskWorking, state == A2ATaskSubmitted
+			}, deliveredAt); err != nil {
+				return nil, err
+			}
+		}
 		if err := appendEvent(ctx, tx, principal.ScopeID, "message.delivered", message.ID, eventAttributes(
 			"from", message.From, "to", message.To, "mode", string(message.Mode), "state", string(DeliveryDelivered),
 		), deliveredAt); err != nil {
@@ -1112,7 +1191,7 @@ func (s *Store) AcknowledgeMessages(ctx context.Context, principal Principal, me
 	var count int64
 	for _, messageID := range unique(messageIDs) {
 		now := nowMillis()
-		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='acknowledged',acknowledged_at=? WHERE message_id=? AND scope_id=? AND to_agent=? AND state='delivered'`,
+		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='acknowledged',acknowledged_at=? WHERE message_id=? AND scope_id=? AND to_kind='agent' AND to_id=? AND state='delivered'`,
 			now, messageID, principal.ScopeID, principal.AgentID)
 		if err != nil {
 			return 0, err
@@ -1122,7 +1201,7 @@ func (s *Store) AcknowledgeMessages(ctx context.Context, principal Principal, me
 		if changed == 1 {
 			var from, to string
 			var mode MessageMode
-			if err := tx.QueryRowContext(ctx, `SELECT from_agent,to_agent,mode FROM messages WHERE message_id=?`, messageID).Scan(&from, &to, &mode); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT from_id,to_id,mode FROM messages WHERE message_id=?`, messageID).Scan(&from, &to, &mode); err != nil {
 				return 0, err
 			}
 			if err := appendEvent(ctx, tx, principal.ScopeID, "message.acknowledged", messageID, eventAttributes(

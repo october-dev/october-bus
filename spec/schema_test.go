@@ -227,6 +227,8 @@ func TestPortableScopeArchiveSchema(t *testing.T) {
 		TaskProgress:          []bus.ArchivedTaskProgress{},
 		Escalations:           []bus.ArchivedEscalation{},
 		AgentCardPublications: []bus.ArchivedAgentCard{},
+		A2ATasks:              []bus.ArchivedA2ATask{},
+		A2AMessages:           []bus.ArchivedA2AMessage{},
 		OutputStreams:         []bus.ArchivedOutputStream{},
 		OutputValues:          []bus.ArchivedOutputValue{},
 	}

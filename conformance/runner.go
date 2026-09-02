@@ -132,7 +132,8 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			Scope:      bus.ArchivedScope{ID: scopeID + "-archive", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)},
 			Agents:     []bus.ArchivedAgent{}, Links: []bus.ArchivedPeerLink{}, Messages: []bus.ArchivedMessage{},
 			Tasks: []bus.ArchivedTask{}, TaskProgress: []bus.ArchivedTaskProgress{}, Escalations: []bus.ArchivedEscalation{},
-			AgentCardPublications: []bus.ArchivedAgentCard{}, OutputStreams: []bus.ArchivedOutputStream{}, OutputValues: []bus.ArchivedOutputValue{},
+			AgentCardPublications: []bus.ArchivedAgentCard{}, A2ATasks: []bus.ArchivedA2ATask{}, A2AMessages: []bus.ArchivedA2AMessage{},
+			OutputStreams: []bus.ArchivedOutputStream{}, OutputValues: []bus.ArchivedOutputValue{},
 		}
 		imported, err := admin.ImportScope(ctx, archive)
 		if err != nil || !imported.Imported || imported.ScopeID != archive.Scope.ID || imported.ScopeToken == "" {

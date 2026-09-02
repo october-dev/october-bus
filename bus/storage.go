@@ -40,6 +40,10 @@ FROM escalations WHERE scope_id=? GROUP BY status ORDER BY status`},
 FROM events WHERE scope_id=? GROUP BY event_type ORDER BY event_type`},
 		{"a2aPublication", `SELECT CASE enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END,COUNT(*),0,MIN(created_at)
 FROM a2a_publications WHERE scope_id=? GROUP BY enabled ORDER BY enabled DESC`},
+		{"a2aTask", `SELECT state,COUNT(*),COALESCE(SUM(length(CAST(context_id AS BLOB))),0),MIN(created_at)
+FROM a2a_tasks WHERE scope_id=? GROUP BY state ORDER BY state`},
+		{"a2aMessage", `SELECT 'correlated',COUNT(*),COALESCE(SUM(length(CAST(client_message_id AS BLOB))),0),MIN(records.created_at)
+FROM a2a_message_correlations AS records JOIN a2a_tasks AS tasks ON tasks.task_id=records.task_id WHERE tasks.scope_id=? HAVING COUNT(*)>0`},
 		{"credential", `SELECT CASE enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END,COUNT(*),COALESCE(SUM(length(CAST(label AS BLOB))),0),MIN(created_at)
 FROM scoped_credentials WHERE scope_id=? GROUP BY enabled ORDER BY enabled DESC`},
 		{"outputStream", `SELECT 'active',COUNT(*),COALESCE(SUM(length(CAST(name AS BLOB))),0),MIN(created_at)

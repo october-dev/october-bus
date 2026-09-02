@@ -49,6 +49,15 @@ func validateMessageMode(value MessageMode) error {
 	}
 }
 
+func validateMessageParticipantKind(value MessageParticipantKind) error {
+	switch value {
+	case MessageParticipantAgent, MessageParticipantA2APrincipal:
+		return nil
+	default:
+		return Errorf(CodeInvalidArgument, "message participant kind is invalid")
+	}
+}
+
 func validateCapabilities(values []AgentCapability) error {
 	if len(values) > 64 {
 		return Errorf(CodeInvalidArgument, "capabilities exceeds 64 items")

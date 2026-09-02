@@ -97,6 +97,10 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 	if _, err := source.runtime.ClaimTask(ctx, source.reviewerToken, pendingTask.ID); err != nil {
 		t.Fatal(err)
 	}
+	a2aTask, err := source.runtime.AcceptA2AMessage(ctx, a2aPrincipal.Credential, publication.ID, AcceptA2AMessageInput{ClientMessageID: "portable-turn", Body: "Review after restore"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := source.runtime.ExportScope(ctx, source.scope.ScopeID); err == nil {
 		t.Fatal("active scope was exported")
@@ -121,7 +125,7 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 	for _, message := range archive.Messages {
 		archivedMessages[message.ID] = message
 	}
-	if len(archive.Messages) != 3 || archivedMessages[request.MessageID].ResponseMessageID != reply.MessageID || archivedMessages[reply.MessageID].ResponseTo != request.MessageID {
+	if len(archive.Messages) != 4 || archivedMessages[request.MessageID].ResponseMessageID != reply.MessageID || archivedMessages[reply.MessageID].ResponseTo != request.MessageID {
 		t.Fatalf("messages were not preserved: %#v", archive.Messages)
 	}
 	if archivedMessages[pendingMessage.MessageID].State != DeliveryQueued {
@@ -134,7 +138,7 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 	if len(archive.Tasks) != 2 || archivedTasks[pendingTask.ID].Status != "open" || archivedTasks[pendingTask.ID].ClaimedBy != "" {
 		t.Fatalf("active task claim was not made portable: %#v", archive.Tasks)
 	}
-	if len(archive.AgentCardPublications) != 1 || len(archive.OutputStreams) != 1 || len(archive.OutputValues) != 1 {
+	if len(archive.AgentCardPublications) != 1 || len(archive.A2ATasks) != 1 || archive.A2ATasks[0].ID != a2aTask.ID || len(archive.A2AMessages) != 1 || len(archive.OutputStreams) != 1 || len(archive.OutputValues) != 1 {
 		t.Fatalf("configuration and output history were not preserved: %#v", archive)
 	}
 
@@ -168,6 +172,16 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 	}
 	if registered.ExecutionID == source.planner.ExecutionID {
 		t.Fatal("source execution authority survived import")
+	}
+	var restoredA2ATasks, restoredA2AMessages int
+	if err := destination.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_tasks WHERE scope_id=?`, imported.ScopeID).Scan(&restoredA2ATasks); err != nil {
+		t.Fatal(err)
+	}
+	if err := destination.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_message_correlations`).Scan(&restoredA2AMessages); err != nil {
+		t.Fatal(err)
+	}
+	if restoredA2ATasks != 1 || restoredA2AMessages != 1 {
+		t.Fatalf("A2A correlations were not restored: tasks=%d messages=%d", restoredA2ATasks, restoredA2AMessages)
 	}
 	receipt, err := destination.Receipt(ctx, registered.AgentToken, request.MessageID)
 	if err != nil || receipt.State != DeliveryAcknowledged || receipt.ResponseMessageID != reply.MessageID {

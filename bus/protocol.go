@@ -23,6 +23,13 @@ const (
 	MessageResponse MessageMode = "response"
 )
 
+type MessageParticipantKind string
+
+const (
+	MessageParticipantAgent        MessageParticipantKind = "agent"
+	MessageParticipantA2APrincipal MessageParticipantKind = "a2aPrincipal"
+)
+
 type DeliveryState string
 
 const (
@@ -65,21 +72,62 @@ type ContextItem struct {
 }
 
 type Message struct {
-	ID                string        `json:"id"`
-	ScopeID           string        `json:"scopeId"`
-	From              string        `json:"from"`
-	To                string        `json:"to"`
-	Mode              MessageMode   `json:"mode"`
-	Body              string        `json:"body"`
-	Context           []ContextItem `json:"context"`
-	ResponseTo        string        `json:"responseTo,omitempty"`
-	State             DeliveryState `json:"state"`
-	CreatedAt         string        `json:"createdAt"`
-	ExpiresAt         string        `json:"expiresAt,omitempty"`
-	DeliveredAt       string        `json:"deliveredAt,omitempty"`
-	AcknowledgedAt    string        `json:"acknowledgedAt,omitempty"`
-	RepliedAt         string        `json:"repliedAt,omitempty"`
-	ResponseMessageID string        `json:"responseMessageId,omitempty"`
+	ID                string                 `json:"id"`
+	ScopeID           string                 `json:"scopeId"`
+	From              string                 `json:"from"`
+	FromKind          MessageParticipantKind `json:"fromKind"`
+	To                string                 `json:"to"`
+	ToKind            MessageParticipantKind `json:"toKind"`
+	Mode              MessageMode            `json:"mode"`
+	Body              string                 `json:"body"`
+	Context           []ContextItem          `json:"context"`
+	ResponseTo        string                 `json:"responseTo,omitempty"`
+	State             DeliveryState          `json:"state"`
+	CreatedAt         string                 `json:"createdAt"`
+	ExpiresAt         string                 `json:"expiresAt,omitempty"`
+	DeliveredAt       string                 `json:"deliveredAt,omitempty"`
+	AcknowledgedAt    string                 `json:"acknowledgedAt,omitempty"`
+	RepliedAt         string                 `json:"repliedAt,omitempty"`
+	ResponseMessageID string                 `json:"responseMessageId,omitempty"`
+}
+
+type A2ATaskState string
+
+const (
+	A2ATaskSubmitted     A2ATaskState = "submitted"
+	A2ATaskWorking       A2ATaskState = "working"
+	A2ATaskInputRequired A2ATaskState = "input-required"
+	A2ATaskCompleted     A2ATaskState = "completed"
+	A2ATaskFailed        A2ATaskState = "failed"
+	A2ATaskCanceled      A2ATaskState = "canceled"
+	A2ATaskRejected      A2ATaskState = "rejected"
+)
+
+type A2AMessageCorrelation struct {
+	ClientMessageID      string `json:"clientMessageId"`
+	BusRequestMessageID  string `json:"busRequestMessageId"`
+	BusResponseMessageID string `json:"busResponseMessageId,omitempty"`
+	CreatedAt            string `json:"createdAt"`
+	UpdatedAt            string `json:"updatedAt"`
+}
+
+type A2ATaskCorrelation struct {
+	ID            string                  `json:"id"`
+	ContextID     string                  `json:"contextId"`
+	PrincipalID   string                  `json:"principalId"`
+	PublicationID string                  `json:"publicationId"`
+	TargetAgentID string                  `json:"targetAgentId"`
+	State         A2ATaskState            `json:"state"`
+	Messages      []A2AMessageCorrelation `json:"messages"`
+	CreatedAt     string                  `json:"createdAt"`
+	UpdatedAt     string                  `json:"updatedAt"`
+}
+
+type AcceptA2AMessageInput struct {
+	TaskID          string `json:"taskId,omitempty"`
+	ContextID       string `json:"contextId,omitempty"`
+	ClientMessageID string `json:"clientMessageId"`
+	Body            string `json:"body"`
 }
 
 type DeliveryReceipt struct {

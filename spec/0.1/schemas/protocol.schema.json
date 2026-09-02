@@ -19,6 +19,10 @@
       "type": "string",
       "enum": ["notify", "request", "response"]
     },
+    "messageParticipantKind": {
+      "type": "string",
+      "enum": ["agent", "a2aPrincipal"]
+    },
     "deliveryState": {
       "type": "string",
       "enum": ["queued", "reserved", "delivered", "acknowledged", "expired"]
@@ -185,12 +189,14 @@
     "message": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "scopeId", "from", "to", "mode", "body", "context", "state", "createdAt"],
+      "required": ["id", "scopeId", "from", "fromKind", "to", "toKind", "mode", "body", "context", "state", "createdAt"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "scopeId": { "$ref": "#/$defs/identifier" },
         "from": { "$ref": "#/$defs/identifier" },
+        "fromKind": { "$ref": "#/$defs/messageParticipantKind" },
         "to": { "$ref": "#/$defs/identifier" },
+        "toKind": { "$ref": "#/$defs/messageParticipantKind" },
         "mode": { "$ref": "#/$defs/messageMode" },
         "body": { "type": "string", "minLength": 1, "maxLength": 65536 },
         "context": {
@@ -410,6 +416,38 @@
         "credential": { "type": "string", "minLength": 1 }
       }
     },
+    "a2aTaskState": {
+      "type": "string",
+      "enum": ["submitted", "working", "input-required", "completed", "failed", "canceled", "rejected"]
+    },
+    "a2aMessageCorrelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientMessageId", "busRequestMessageId", "createdAt", "updatedAt"],
+      "properties": {
+        "clientMessageId": { "$ref": "#/$defs/identifier" },
+        "busRequestMessageId": { "$ref": "#/$defs/identifier" },
+        "busResponseMessageId": { "$ref": "#/$defs/identifier" },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "a2aTaskCorrelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "contextId", "principalId", "publicationId", "targetAgentId", "state", "messages", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "contextId": { "$ref": "#/$defs/identifier" },
+        "principalId": { "$ref": "#/$defs/identifier" },
+        "publicationId": { "$ref": "#/$defs/identifier" },
+        "targetAgentId": { "$ref": "#/$defs/identifier" },
+        "state": { "$ref": "#/$defs/a2aTaskState" },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/a2aMessageCorrelation" } },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
     "outputContentType": {
       "type": "string",
       "enum": ["text/plain", "application/json"]
@@ -558,7 +596,7 @@
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication", "credential", "outputStream", "outputValue"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication", "a2aTask", "a2aMessage", "credential", "outputStream", "outputValue"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },

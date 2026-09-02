@@ -9,12 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
 const (
 	ScopeArchiveFormat  = "october-bus.scope"
-	ScopeArchiveVersion = 1
+	ScopeArchiveVersion = 2
 )
 
 type ScopeArchive struct {
@@ -29,6 +30,8 @@ type ScopeArchive struct {
 	TaskProgress          []ArchivedTaskProgress `json:"taskProgress"`
 	Escalations           []ArchivedEscalation   `json:"escalations"`
 	AgentCardPublications []ArchivedAgentCard    `json:"agentCardPublications"`
+	A2ATasks              []ArchivedA2ATask      `json:"a2aTasks"`
+	A2AMessages           []ArchivedA2AMessage   `json:"a2aMessages"`
 	OutputStreams         []ArchivedOutputStream `json:"outputStreams"`
 	OutputValues          []ArchivedOutputValue  `json:"outputValues"`
 }
@@ -53,21 +56,44 @@ type ArchivedPeerLink struct {
 }
 
 type ArchivedMessage struct {
-	ID                string        `json:"id"`
-	From              string        `json:"from"`
-	To                string        `json:"to"`
-	Mode              MessageMode   `json:"mode"`
-	Body              string        `json:"body"`
-	Context           []ContextItem `json:"context"`
-	ResponseTo        string        `json:"responseTo,omitempty"`
-	IdempotencyKey    string        `json:"idempotencyKey,omitempty"`
-	State             DeliveryState `json:"state"`
-	CreatedAt         string        `json:"createdAt"`
-	ExpiresAt         string        `json:"expiresAt,omitempty"`
-	DeliveredAt       string        `json:"deliveredAt,omitempty"`
-	AcknowledgedAt    string        `json:"acknowledgedAt,omitempty"`
-	RepliedAt         string        `json:"repliedAt,omitempty"`
-	ResponseMessageID string        `json:"responseMessageId,omitempty"`
+	ID                string                 `json:"id"`
+	From              string                 `json:"from"`
+	FromKind          MessageParticipantKind `json:"fromKind"`
+	To                string                 `json:"to"`
+	ToKind            MessageParticipantKind `json:"toKind"`
+	Mode              MessageMode            `json:"mode"`
+	Body              string                 `json:"body"`
+	Context           []ContextItem          `json:"context"`
+	ResponseTo        string                 `json:"responseTo,omitempty"`
+	IdempotencyKey    string                 `json:"idempotencyKey,omitempty"`
+	State             DeliveryState          `json:"state"`
+	CreatedAt         string                 `json:"createdAt"`
+	ExpiresAt         string                 `json:"expiresAt,omitempty"`
+	DeliveredAt       string                 `json:"deliveredAt,omitempty"`
+	AcknowledgedAt    string                 `json:"acknowledgedAt,omitempty"`
+	RepliedAt         string                 `json:"repliedAt,omitempty"`
+	ResponseMessageID string                 `json:"responseMessageId,omitempty"`
+}
+
+type ArchivedA2ATask struct {
+	ID            string       `json:"id"`
+	ContextID     string       `json:"contextId"`
+	PrincipalID   string       `json:"principalId"`
+	PublicationID string       `json:"publicationId"`
+	TargetAgentID string       `json:"targetAgentId"`
+	State         A2ATaskState `json:"state"`
+	CreatedAt     string       `json:"createdAt"`
+	UpdatedAt     string       `json:"updatedAt"`
+}
+
+type ArchivedA2AMessage struct {
+	PrincipalID          string `json:"principalId"`
+	ClientMessageID      string `json:"clientMessageId"`
+	TaskID               string `json:"taskId"`
+	BusRequestMessageID  string `json:"busRequestMessageId"`
+	BusResponseMessageID string `json:"busResponseMessageId,omitempty"`
+	CreatedAt            string `json:"createdAt"`
+	UpdatedAt            string `json:"updatedAt"`
 }
 
 type ArchivedTask struct {
@@ -194,8 +220,16 @@ func queryArchivedLinks(ctx context.Context, tx *sql.Tx, scopeID string) ([]Arch
 	return values, rows.Err()
 }
 
+func archivedA2APrincipalID(scopeID, principalID string) string {
+	if strings.HasPrefix(principalID, "a2ap_") {
+		return principalID
+	}
+	digest := sha256.Sum256([]byte(scopeID + "\x00" + principalID))
+	return "a2ap_" + hex.EncodeToString(digest[:16])
+}
+
 func queryArchivedMessages(ctx context.Context, tx *sql.Tx, scopeID string) ([]ArchivedMessage, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_agent,to_agent,mode,body,context_json,response_to,idempotency_key,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id FROM messages WHERE scope_id=? ORDER BY created_at,message_id`, scopeID)
+	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_kind,from_id,to_kind,to_id,mode,body,context_json,response_to,idempotency_key,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id FROM messages WHERE scope_id=? ORDER BY created_at,message_id`, scopeID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +241,14 @@ func queryArchivedMessages(ctx context.Context, tx *sql.Tx, scopeID string) ([]A
 		var responseTo, idempotencyKey, responseMessageID sql.NullString
 		var createdAt int64
 		var expiresAt, deliveredAt, acknowledgedAt, repliedAt sql.NullInt64
-		if err := rows.Scan(&value.ID, &value.From, &value.To, &value.Mode, &value.Body, &contextJSON, &responseTo, &idempotencyKey, &value.State, &createdAt, &expiresAt, &deliveredAt, &acknowledgedAt, &repliedAt, &responseMessageID); err != nil {
+		if err := rows.Scan(&value.ID, &value.FromKind, &value.From, &value.ToKind, &value.To, &value.Mode, &value.Body, &contextJSON, &responseTo, &idempotencyKey, &value.State, &createdAt, &expiresAt, &deliveredAt, &acknowledgedAt, &repliedAt, &responseMessageID); err != nil {
 			return nil, err
+		}
+		if value.FromKind == MessageParticipantA2APrincipal {
+			value.From = archivedA2APrincipalID(scopeID, value.From)
+		}
+		if value.ToKind == MessageParticipantA2APrincipal {
+			value.To = archivedA2APrincipalID(scopeID, value.To)
 		}
 		if err := json.Unmarshal([]byte(contextJSON), &value.Context); err != nil {
 			return nil, err
@@ -229,6 +269,49 @@ func queryArchivedMessages(ctx context.Context, tx *sql.Tx, scopeID string) ([]A
 		values = append(values, value)
 	}
 	return values, rows.Err()
+}
+
+func queryArchivedA2A(ctx context.Context, tx *sql.Tx, scopeID string) ([]ArchivedA2ATask, []ArchivedA2AMessage, error) {
+	taskRows, err := tx.QueryContext(ctx, `SELECT task_id,context_id,principal_id,publication_id,target_agent_id,state,created_at,updated_at FROM a2a_tasks WHERE scope_id=? ORDER BY created_at,task_id`, scopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	tasks := []ArchivedA2ATask{}
+	for taskRows.Next() {
+		var task ArchivedA2ATask
+		var createdAt, updatedAt int64
+		if err := taskRows.Scan(&task.ID, &task.ContextID, &task.PrincipalID, &task.PublicationID, &task.TargetAgentID, &task.State, &createdAt, &updatedAt); err != nil {
+			taskRows.Close()
+			return nil, nil, err
+		}
+		task.PrincipalID = archivedA2APrincipalID(scopeID, task.PrincipalID)
+		task.CreatedAt, task.UpdatedAt = instant(createdAt), instant(updatedAt)
+		tasks = append(tasks, task)
+	}
+	if err := taskRows.Err(); err != nil {
+		taskRows.Close()
+		return nil, nil, err
+	}
+	taskRows.Close()
+	messageRows, err := tx.QueryContext(ctx, `SELECT correlations.principal_id,correlations.client_message_id,correlations.task_id,correlations.bus_request_message_id,correlations.bus_response_message_id,correlations.created_at,correlations.updated_at FROM a2a_message_correlations AS correlations JOIN a2a_tasks AS tasks ON tasks.task_id=correlations.task_id WHERE tasks.scope_id=? ORDER BY correlations.created_at,correlations.client_message_id`, scopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer messageRows.Close()
+	messages := []ArchivedA2AMessage{}
+	for messageRows.Next() {
+		var message ArchivedA2AMessage
+		var responseID sql.NullString
+		var createdAt, updatedAt int64
+		if err := messageRows.Scan(&message.PrincipalID, &message.ClientMessageID, &message.TaskID, &message.BusRequestMessageID, &responseID, &createdAt, &updatedAt); err != nil {
+			return nil, nil, err
+		}
+		message.PrincipalID = archivedA2APrincipalID(scopeID, message.PrincipalID)
+		message.BusResponseMessageID = responseID.String
+		message.CreatedAt, message.UpdatedAt = instant(createdAt), instant(updatedAt)
+		messages = append(messages, message)
+	}
+	return tasks, messages, messageRows.Err()
 }
 
 func queryArchivedTasks(ctx context.Context, tx *sql.Tx, scopeID string) ([]ArchivedTask, error) {
@@ -414,6 +497,9 @@ func (s *Store) ExportScope(ctx context.Context, scopeID string) (ScopeArchive, 
 	if archive.AgentCardPublications, err = queryArchivedAgentCards(ctx, tx, scopeID); err != nil {
 		return ScopeArchive{}, err
 	}
+	if archive.A2ATasks, archive.A2AMessages, err = queryArchivedA2A(ctx, tx, scopeID); err != nil {
+		return ScopeArchive{}, err
+	}
 	if archive.OutputStreams, archive.OutputValues, err = queryArchivedOutputs(ctx, tx, scopeID); err != nil {
 		return ScopeArchive{}, err
 	}
@@ -452,7 +538,7 @@ func validateArchive(archive *ScopeArchive) error {
 	if _, err := archiveTime(archive.Scope.CreatedAt, true); err != nil {
 		return err
 	}
-	if archive.Agents == nil || archive.Links == nil || archive.Messages == nil || archive.Tasks == nil || archive.TaskProgress == nil || archive.Escalations == nil || archive.AgentCardPublications == nil || archive.OutputStreams == nil || archive.OutputValues == nil {
+	if archive.Agents == nil || archive.Links == nil || archive.Messages == nil || archive.Tasks == nil || archive.TaskProgress == nil || archive.Escalations == nil || archive.AgentCardPublications == nil || archive.A2ATasks == nil || archive.A2AMessages == nil || archive.OutputStreams == nil || archive.OutputValues == nil {
 		return Errorf(CodeInvalidArgument, "Archive record collections are required")
 	}
 	agents := map[string]bool{}
@@ -507,8 +593,20 @@ func validateArchive(archive *ScopeArchive) error {
 			return Errorf(CodeInvalidArgument, "Archive contains a duplicate message id")
 		}
 		messages[message.ID] = message
-		if !agents[message.From] || !agents[message.To] {
+		if err := validateMessageParticipantKind(message.FromKind); err != nil {
+			return err
+		}
+		if err := validateMessageParticipantKind(message.ToKind); err != nil {
+			return err
+		}
+		if (message.FromKind == MessageParticipantAgent && !agents[message.From]) || (message.ToKind == MessageParticipantAgent && !agents[message.To]) {
 			return Errorf(CodeInvalidArgument, "Archive message refers to an unknown agent")
+		}
+		if err := requireArchiveID(message.From, "message.from"); err != nil {
+			return err
+		}
+		if err := requireArchiveID(message.To, "message.to"); err != nil {
+			return err
 		}
 		if err := validateMessageMode(message.Mode); err != nil {
 			return err
@@ -526,7 +624,7 @@ func validateArchive(archive *ScopeArchive) error {
 			return err
 		}
 		if message.IdempotencyKey != "" {
-			key := message.From + "\x00" + message.IdempotencyKey
+			key := string(message.FromKind) + "\x00" + message.From + "\x00" + message.IdempotencyKey
 			if idempotencyKeys[key] {
 				return Errorf(CodeInvalidArgument, "Archive contains a duplicate message idempotency key")
 			}
@@ -553,7 +651,7 @@ func validateArchive(archive *ScopeArchive) error {
 	for _, message := range archive.Messages {
 		if message.Mode == MessageResponse {
 			request := messages[message.ResponseTo]
-			if request == nil || request.Mode != MessageRequest || request.From != message.To || request.To != message.From || request.ResponseMessageID != message.ID || request.RepliedAt == "" {
+			if request == nil || request.Mode != MessageRequest || request.From != message.To || request.FromKind != message.ToKind || request.To != message.From || request.ToKind != message.FromKind || request.ResponseMessageID != message.ID || request.RepliedAt == "" {
 				return Errorf(CodeInvalidArgument, "Archive contains an invalid response correlation")
 			}
 		} else if message.ResponseTo != "" {
@@ -774,6 +872,56 @@ func validateArchive(archive *ScopeArchive) error {
 			return err
 		}
 	}
+	a2aTasks := map[string]ArchivedA2ATask{}
+	for _, task := range archive.A2ATasks {
+		if err := requireArchiveID(task.ID, "a2aTask.id"); err != nil {
+			return err
+		}
+		if err := requireArchiveID(task.ContextID, "a2aTask.contextId"); err != nil {
+			return err
+		}
+		if err := requireArchiveID(task.PrincipalID, "a2aTask.principalId"); err != nil {
+			return err
+		}
+		if a2aTasks[task.ID].ID != "" || !publications[task.PublicationID] || !agents[task.TargetAgentID] || !validA2ATaskState(task.State) {
+			return Errorf(CodeInvalidArgument, "Archive contains an invalid A2A task")
+		}
+		if _, err := archiveTime(task.CreatedAt, true); err != nil {
+			return err
+		}
+		if _, err := archiveTime(task.UpdatedAt, true); err != nil {
+			return err
+		}
+		a2aTasks[task.ID] = task
+	}
+	a2aMessageKeys := map[string]bool{}
+	for _, correlation := range archive.A2AMessages {
+		task, ok := a2aTasks[correlation.TaskID]
+		request := messages[correlation.BusRequestMessageID]
+		if !ok || task.PrincipalID != correlation.PrincipalID || request == nil || request.Mode != MessageRequest || request.FromKind != MessageParticipantA2APrincipal || request.From != correlation.PrincipalID || request.ToKind != MessageParticipantAgent || request.To != task.TargetAgentID {
+			return Errorf(CodeInvalidArgument, "Archive contains an invalid A2A message correlation")
+		}
+		if err := requireArchiveID(correlation.ClientMessageID, "a2aMessage.clientMessageId"); err != nil {
+			return err
+		}
+		key := correlation.PrincipalID + "\x00" + correlation.ClientMessageID
+		if a2aMessageKeys[key] {
+			return Errorf(CodeInvalidArgument, "Archive contains a duplicate A2A client message id")
+		}
+		a2aMessageKeys[key] = true
+		if correlation.BusResponseMessageID != "" {
+			response := messages[correlation.BusResponseMessageID]
+			if response == nil || request.ResponseMessageID != response.ID || response.ResponseTo != request.ID {
+				return Errorf(CodeInvalidArgument, "Archive contains an invalid A2A response correlation")
+			}
+		}
+		if _, err := archiveTime(correlation.CreatedAt, true); err != nil {
+			return err
+		}
+		if _, err := archiveTime(correlation.UpdatedAt, true); err != nil {
+			return err
+		}
+	}
 	streams := map[string]*ArchivedOutputStream{}
 	streamNames := map[string]bool{}
 	if len(archive.OutputStreams) > maxOutputStreams {
@@ -890,7 +1038,7 @@ func insertArchive(ctx context.Context, tx *sql.Tx, archive ScopeArchive, digest
 			expiresIn = expires - created
 		}
 		requestHash := messageRequestHash(SendMessageInput{To: message.To, Body: message.Body, ResponseTo: message.ResponseTo, ExpiresInMS: expiresIn}, message.Mode, contextJSON)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(message_id,scope_id,from_agent,to_agent,mode,body,context_json,response_to,idempotency_key,request_hash,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?)`, message.ID, archive.Scope.ID, message.From, message.To, message.Mode, message.Body, contextJSON, nullableString(message.IdempotencyKey), requestHash, message.State, created, nullableInt64(expires), nullableInt64(delivered), nullableInt64(acknowledged), nullableInt64(replied), nullableString(message.ResponseMessageID)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(message_id,scope_id,from_kind,from_id,to_kind,to_id,mode,body,context_json,response_to,idempotency_key,request_hash,state,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?)`, message.ID, archive.Scope.ID, message.FromKind, message.From, message.ToKind, message.To, message.Mode, message.Body, contextJSON, nullableString(message.IdempotencyKey), requestHash, message.State, created, nullableInt64(expires), nullableInt64(delivered), nullableInt64(acknowledged), nullableInt64(replied), nullableString(message.ResponseMessageID)); err != nil {
 			return err
 		}
 	}
@@ -932,6 +1080,21 @@ func insertArchive(ctx context.Context, tx *sql.Tx, archive ScopeArchive, digest
 		created, _ := archiveTime(publication.CreatedAt, true)
 		updated, _ := archiveTime(publication.UpdatedAt, true)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO a2a_publications(publication_id,scope_id,agent_id,enabled,created_at,updated_at) VALUES(?,?,?,0,?,?)`, publication.ID, archive.Scope.ID, publication.AgentID, created, updated); err != nil {
+			return err
+		}
+	}
+	for _, task := range archive.A2ATasks {
+		created, _ := archiveTime(task.CreatedAt, true)
+		updated, _ := archiveTime(task.UpdatedAt, true)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO a2a_tasks(task_id,scope_id,context_id,principal_id,publication_id,target_agent_id,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, task.ID, archive.Scope.ID, task.ContextID, task.PrincipalID, task.PublicationID, task.TargetAgentID, task.State, created, updated); err != nil {
+			return err
+		}
+	}
+	for _, correlation := range archive.A2AMessages {
+		created, _ := archiveTime(correlation.CreatedAt, true)
+		updated, _ := archiveTime(correlation.UpdatedAt, true)
+		requestHash := a2aMessageRequestHash(AcceptA2AMessageInput{TaskID: correlation.TaskID, ClientMessageID: correlation.ClientMessageID})
+		if _, err := tx.ExecContext(ctx, `INSERT INTO a2a_message_correlations(principal_id,client_message_id,task_id,request_hash,bus_request_message_id,bus_response_message_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, correlation.PrincipalID, correlation.ClientMessageID, correlation.TaskID, requestHash, correlation.BusRequestMessageID, nullableString(correlation.BusResponseMessageID), created, updated); err != nil {
 			return err
 		}
 	}

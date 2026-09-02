@@ -8,6 +8,7 @@ export type TaskId = string
 
 export type AgentLifecycle = 'starting' | 'ready' | 'working' | 'idle' | 'needs_input' | 'offline'
 export type MessageMode = 'notify' | 'request' | 'response'
+export type MessageParticipantKind = 'agent' | 'a2aPrincipal'
 export type DeliveryState = 'queued' | 'reserved' | 'delivered' | 'acknowledged' | 'expired'
 export type TaskStatus = 'open' | 'claimed' | 'done'
 export type TaskProgressKind = 'progress' | 'note' | 'blocker'
@@ -47,8 +48,10 @@ export interface ContextItem {
 export interface BusMessage {
   id: MessageId
   scopeId: ScopeId
-  from: AgentId
-  to: AgentId
+  from: string
+  fromKind: MessageParticipantKind
+  to: string
+  toKind: MessageParticipantKind
   mode: MessageMode
   body: string
   context: ContextItem[]
@@ -158,6 +161,35 @@ export interface IssuedA2APrincipal {
   credential: string
 }
 
+export type A2ATaskState =
+  | 'submitted'
+  | 'working'
+  | 'input-required'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'rejected'
+
+export interface A2AMessageCorrelation {
+  clientMessageId: string
+  busRequestMessageId: MessageId
+  busResponseMessageId?: MessageId
+  createdAt: string
+  updatedAt: string
+}
+
+export interface A2ATaskCorrelation {
+  id: string
+  contextId: string
+  principalId: string
+  publicationId: string
+  targetAgentId: AgentId
+  state: A2ATaskState
+  messages: A2AMessageCorrelation[]
+  createdAt: string
+  updatedAt: string
+}
+
 export type OutputContentType = 'text/plain' | 'application/json'
 export type OutputPermission = 'read' | 'publish'
 
@@ -253,8 +285,10 @@ export interface ArchivedPeerLink {
 
 export interface ArchivedMessage {
   id: MessageId
-  from: AgentId
-  to: AgentId
+  from: string
+  fromKind: MessageParticipantKind
+  to: string
+  toKind: MessageParticipantKind
   mode: MessageMode
   body: string
   context: ContextItem[]
@@ -267,6 +301,27 @@ export interface ArchivedMessage {
   acknowledgedAt?: string
   repliedAt?: string
   responseMessageId?: MessageId
+}
+
+export interface ArchivedA2ATask {
+  id: string
+  contextId: string
+  principalId: string
+  publicationId: string
+  targetAgentId: AgentId
+  state: A2ATaskState
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArchivedA2AMessage {
+  principalId: string
+  clientMessageId: string
+  taskId: string
+  busRequestMessageId: MessageId
+  busResponseMessageId?: MessageId
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ArchivedTask {
@@ -333,7 +388,7 @@ export interface ArchivedOutputValue {
 
 export interface ScopeArchive {
   format: 'october-bus.scope'
-  version: 1
+  version: 2
   exportedAt: string
   scope: ArchivedScope
   agents: ArchivedAgent[]
@@ -343,6 +398,8 @@ export interface ScopeArchive {
   taskProgress: ArchivedTaskProgress[]
   escalations: ArchivedEscalation[]
   agentCardPublications: ArchivedAgentCard[]
+  a2aTasks: ArchivedA2ATask[]
+  a2aMessages: ArchivedA2AMessage[]
   outputStreams: ArchivedOutputStream[]
   outputValues: ArchivedOutputValue[]
 }
