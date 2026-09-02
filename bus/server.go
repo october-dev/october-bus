@@ -227,12 +227,16 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 	}
 	mcp.AddTool(server, &mcp.Tool{Name: "message_peer", Description: "Send a durable notification, request, or response to a linked peer."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input messagePeerInput) (*mcp.CallToolResult, any, error) {
-			peer, err := s.resolvePeer(ctx, token, input.Peer)
-			if err != nil {
-				return nil, nil, err
+			to := input.Peer
+			if input.Mode != MessageResponse {
+				peer, err := s.resolvePeer(ctx, token, input.Peer)
+				if err != nil {
+					return nil, nil, err
+				}
+				to = peer.ID
 			}
 			result, err := s.runtime.SendMessage(ctx, token, SendMessageInput{
-				To: peer.ID, Body: input.Message, Mode: input.Mode, ResponseTo: input.ResponseTo,
+				To: to, Body: input.Message, Mode: input.Mode, ResponseTo: input.ResponseTo,
 				IdempotencyKey: input.IdempotencyKey, ExpiresInMS: input.ExpiresInMS, Context: input.Context,
 			})
 			return nil, result, err

@@ -44,6 +44,10 @@ issued, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{
 })
 // Store issued.Credential securely. It cannot be retrieved later.
 
+// Use an A2A 1.0 HTTP+JSON client against publication.InterfaceURL.
+// Send the issued credential as a bearer token. The first write surface
+// accepts text-only SendMessage requests and returns a durable A2A Task.
+
 for batch, err := range owner.WatchEvents(ctx, lastRevision, 50) {
     if err != nil {
         return err

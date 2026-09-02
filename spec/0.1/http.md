@@ -90,6 +90,7 @@ Failures use:
 | `GET` | `/outputs/{streamId}/values` | Scope or scoped read | Ordered output history |
 | `GET` | `/outputs/{streamId}/latest` | Scope or scoped read | Latest output value or `null` |
 | `GET` | `/a2a/agents/{publicationId}/.well-known/agent-card.json` | None | Enabled A2A Agent Card |
+| `POST` | `/a2a/agents/{publicationId}/message:send` | Scoped A2A | Durable A2A Task |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
@@ -105,6 +106,8 @@ Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that ca
 Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
 
 `POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authenticate to any `/v1` or `/mcp` operation.
+
+`POST /a2a/agents/{publicationId}/message:send` implements A2A 1.0 HTTP+JSON `SendMessage`. It accepts user messages made only of plain text parts and returns a durable A2A Task. The bearer credential must belong to the requested publication. The optional `A2A-Version` header must contain exactly `1.0`. Other A2A operations and content types return A2A protocol errors.
 
 `POST /outputs/{streamId}/values` accepts `contentType`, `value`, and an optional URI reference. Agent credentials require an explicit publisher grant. Scoped output credentials require `publish` permission. `GET /outputs/{streamId}/values?after=0&limit=50` returns ordered values after the cursor. The limit is 1 through 100. Clients use `nextSequence` as their next cursor and rebuild from the latest value when `resyncRequired` is true.
 

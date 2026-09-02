@@ -201,6 +201,8 @@ func (s *Server) newRouter() http.Handler {
 		routeMethod{http.MethodHead, s.servePublishedAgentCard},
 		routeMethod{http.MethodOptions, s.servePublishedAgentCard},
 	)
+	registerAllMethods(router, "/a2a/agents/{publicationId}", s.serveA2A)
+	registerAllMethods(router, "/a2a/agents/{publicationId}/{path...}", s.serveA2A)
 	return router
 }
 
