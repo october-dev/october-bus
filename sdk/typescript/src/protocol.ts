@@ -158,6 +158,80 @@ export interface IssuedA2APrincipal {
   credential: string
 }
 
+export type OutputContentType = 'text/plain' | 'application/json'
+export type OutputPermission = 'read' | 'publish'
+
+export interface OutputReference {
+  uri: string
+  title?: string
+}
+
+export interface OutputStream {
+  id: string
+  scopeId: ScopeId
+  name: string
+  retentionLimit: number
+  currentSequence: number
+  minimumCursor: number
+  publisherAgentIds: AgentId[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateOutputStreamInput {
+  name: string
+  retentionLimit?: number
+  publisherAgentIds?: AgentId[]
+}
+
+export interface PublishOutputInput {
+  contentType: OutputContentType
+  value: unknown
+  reference?: OutputReference
+}
+
+export interface OutputValue {
+  streamId: string
+  sequence: number
+  producerType: 'agent' | 'principal'
+  producerId: string
+  contentType: OutputContentType
+  value: unknown
+  reference?: OutputReference
+  createdAt: string
+}
+
+export interface OutputHistory {
+  streamId: string
+  values: OutputValue[]
+  nextSequence: number
+  currentSequence: number
+  minimumCursor: number
+  resyncRequired: boolean
+}
+
+export interface OutputPrincipal {
+  id: string
+  scopeId: ScopeId
+  streamId: string
+  label: string
+  permissions: OutputPermission[]
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateOutputPrincipalInput {
+  streamId: string
+  label: string
+  permissions: OutputPermission[]
+}
+
+export interface IssuedOutputPrincipal {
+  principal: OutputPrincipal
+  credential: string
+}
+
 export interface HumanEscalation {
   id: string
   scopeId: ScopeId
@@ -214,7 +288,16 @@ export interface AddTaskProgressInput {
 }
 
 export interface StorageRecordSummary {
-  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event' | 'a2aPublication' | 'credential'
+  recordType:
+    | 'message'
+    | 'task'
+    | 'taskProgress'
+    | 'escalation'
+    | 'event'
+    | 'a2aPublication'
+    | 'credential'
+    | 'outputStream'
+    | 'outputValue'
   state: string
   count: number
   estimatedBytes: number

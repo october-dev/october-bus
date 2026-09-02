@@ -230,6 +230,66 @@ func (c Client) SetA2APrincipalEnabled(ctx context.Context, principalID string, 
 	return request[A2APrincipal](ctx, c, http.MethodPost, "/v1/a2a/principals/"+url.PathEscape(principalID)+"/"+action, map[string]any{})
 }
 
+func (c Client) CreateOutputStream(ctx context.Context, input CreateOutputStreamInput) (OutputStream, error) {
+	return request[OutputStream](ctx, c, http.MethodPost, "/v1/output-streams", input)
+}
+
+func (c Client) ListOutputStreams(ctx context.Context) ([]OutputStream, error) {
+	return request[[]OutputStream](ctx, c, http.MethodGet, "/v1/output-streams", nil)
+}
+
+func (c Client) OutputStream(ctx context.Context, streamID string) (OutputStream, error) {
+	return request[OutputStream](ctx, c, http.MethodGet, "/v1/output-streams/"+url.PathEscape(streamID), nil)
+}
+
+func (c Client) RemoveOutputStream(ctx context.Context, streamID string) error {
+	_, err := request[map[string]bool](ctx, c, http.MethodDelete, "/v1/output-streams/"+url.PathEscape(streamID), nil)
+	return err
+}
+
+func (c Client) SetOutputPublisher(ctx context.Context, streamID, agentID string, allowed bool) (OutputStream, error) {
+	method := http.MethodDelete
+	if allowed {
+		method = http.MethodPut
+	}
+	return request[OutputStream](ctx, c, method, "/v1/output-streams/"+url.PathEscape(streamID)+"/publishers/"+url.PathEscape(agentID), nil)
+}
+
+func (c Client) CreateOutputPrincipal(ctx context.Context, input CreateOutputPrincipalInput) (IssuedOutputPrincipal, error) {
+	return request[IssuedOutputPrincipal](ctx, c, http.MethodPost, "/v1/output-principals", input)
+}
+
+func (c Client) ListOutputPrincipals(ctx context.Context) ([]OutputPrincipal, error) {
+	return request[[]OutputPrincipal](ctx, c, http.MethodGet, "/v1/output-principals", nil)
+}
+
+func (c Client) RotateOutputPrincipal(ctx context.Context, principalID string) (IssuedOutputPrincipal, error) {
+	return request[IssuedOutputPrincipal](ctx, c, http.MethodPost, "/v1/output-principals/"+url.PathEscape(principalID)+"/rotate", map[string]any{})
+}
+
+func (c Client) SetOutputPrincipalEnabled(ctx context.Context, principalID string, enabled bool) (OutputPrincipal, error) {
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
+	return request[OutputPrincipal](ctx, c, http.MethodPost, "/v1/output-principals/"+url.PathEscape(principalID)+"/"+action, map[string]any{})
+}
+
+func (c Client) PublishOutput(ctx context.Context, streamID string, input PublishOutputInput) (OutputValue, error) {
+	return request[OutputValue](ctx, c, http.MethodPost, "/outputs/"+url.PathEscape(streamID)+"/values", input)
+}
+
+func (c Client) LatestOutput(ctx context.Context, streamID string) (*OutputValue, error) {
+	return request[*OutputValue](ctx, c, http.MethodGet, "/outputs/"+url.PathEscape(streamID)+"/latest", nil)
+}
+
+func (c Client) OutputHistory(ctx context.Context, streamID string, after int64, limit int) (OutputHistory, error) {
+	query := url.Values{}
+	query.Set("after", fmt.Sprintf("%d", after))
+	query.Set("limit", fmt.Sprintf("%d", limit))
+	return request[OutputHistory](ctx, c, http.MethodGet, "/outputs/"+url.PathEscape(streamID)+"/values?"+query.Encode(), nil)
+}
+
 func (c Client) WatchEvents(ctx context.Context, after int64, limit int) iter.Seq2[EventBatch, error] {
 	return func(yield func(EventBatch, error) bool) {
 		for ctx.Err() == nil {

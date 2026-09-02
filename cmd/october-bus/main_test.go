@@ -75,7 +75,7 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 	defer session.Close()
 
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 13 {
+	if err != nil || len(tools.Tools) != 14 {
 		t.Fatalf("unexpected forwarded tools: %d, %v; stderr: %s", len(tools.Tools), err, stderr.String())
 	}
 	directClient := mcp.NewClient(&mcp.Implementation{Name: "direct-test", Version: "1"}, nil)

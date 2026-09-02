@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 7
+	schemaVersion                = 8
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -231,7 +231,48 @@ CREATE TABLE scoped_credential_grants (
 	PRIMARY KEY(credential_id, resource_type, resource_id, permission)
 );
 CREATE INDEX scoped_credential_grants_resource ON scoped_credential_grants(resource_type, resource_id, permission);
-PRAGMA user_version=7;
+CREATE TABLE output_streams (
+	stream_id TEXT PRIMARY KEY,
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	name TEXT NOT NULL,
+	retention_limit INTEGER NOT NULL CHECK(retention_limit BETWEEN 1 AND 10000),
+	sequence INTEGER NOT NULL DEFAULT 0,
+	floor_sequence INTEGER NOT NULL DEFAULT 0,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	UNIQUE(scope_id,name)
+);
+CREATE INDEX output_streams_scope_created ON output_streams(scope_id,created_at);
+CREATE TABLE output_stream_publishers (
+	stream_id TEXT NOT NULL REFERENCES output_streams(stream_id) ON DELETE CASCADE,
+	scope_id TEXT NOT NULL,
+	agent_id TEXT NOT NULL,
+	PRIMARY KEY(stream_id,agent_id),
+	FOREIGN KEY(scope_id,agent_id) REFERENCES agents(scope_id,agent_id)
+);
+CREATE TABLE output_values (
+	stream_id TEXT NOT NULL REFERENCES output_streams(stream_id) ON DELETE CASCADE,
+	sequence INTEGER NOT NULL,
+	producer_type TEXT NOT NULL CHECK(producer_type IN ('agent','principal')),
+	producer_id TEXT NOT NULL,
+	content_type TEXT NOT NULL CHECK(content_type IN ('text/plain','application/json')),
+	value_json TEXT NOT NULL,
+	reference_json TEXT,
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY(stream_id,sequence)
+);
+CREATE INDEX output_values_stream_created ON output_values(stream_id,created_at);
+CREATE TABLE output_rate_usage (
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	principal_type TEXT NOT NULL,
+	principal_id TEXT NOT NULL,
+	window_start INTEGER NOT NULL,
+	publish_count INTEGER NOT NULL DEFAULT 0,
+	read_count INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY(scope_id,principal_type,principal_id,window_start)
+);
+CREATE INDEX output_rate_usage_window ON output_rate_usage(window_start);
+PRAGMA user_version=8;
 COMMIT;`)
 	return err
 }

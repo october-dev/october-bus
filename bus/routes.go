@@ -156,6 +156,40 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/a2a/principals/{principalId}/disable",
 		routeMethod{http.MethodPost, s.disableA2APrincipal},
 	)
+	registerRoute(router, "/v1/output-streams",
+		routeMethod{http.MethodGet, s.listOutputStreams},
+		routeMethod{http.MethodPost, s.createOutputStream},
+	)
+	registerRoute(router, "/v1/output-streams/{streamId}",
+		routeMethod{http.MethodGet, s.getOutputStream},
+		routeMethod{http.MethodDelete, s.removeOutputStream},
+	)
+	registerRoute(router, "/v1/output-streams/{streamId}/publishers/{agentId}",
+		routeMethod{http.MethodPut, s.addOutputPublisher},
+		routeMethod{http.MethodDelete, s.removeOutputPublisher},
+	)
+	registerRoute(router, "/v1/output-principals",
+		routeMethod{http.MethodGet, s.listOutputPrincipals},
+		routeMethod{http.MethodPost, s.createOutputPrincipal},
+	)
+	registerRoute(router, "/v1/output-principals/{principalId}/rotate",
+		routeMethod{http.MethodPost, s.rotateOutputPrincipal},
+	)
+	registerRoute(router, "/v1/output-principals/{principalId}/enable",
+		routeMethod{http.MethodPost, s.enableOutputPrincipal},
+	)
+	registerRoute(router, "/v1/output-principals/{principalId}/disable",
+		routeMethod{http.MethodPost, s.disableOutputPrincipal},
+	)
+	registerRoute(router, "/outputs/{streamId}/values",
+		routeMethod{http.MethodGet, s.outputHistory},
+		routeMethod{http.MethodPost, s.publishOutput},
+		routeMethod{http.MethodOptions, s.outputOptions},
+	)
+	registerRoute(router, "/outputs/{streamId}/latest",
+		routeMethod{http.MethodGet, s.latestOutput},
+		routeMethod{http.MethodOptions, s.outputOptions},
+	)
 	registerRoute(router, "/a2a/agents/{publicationId}/.well-known/agent-card.json",
 		routeMethod{http.MethodGet, s.servePublishedAgentCard},
 		routeMethod{http.MethodHead, s.servePublishedAgentCard},

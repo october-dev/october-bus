@@ -464,7 +464,7 @@ func TestOlderSchemaFailsBeforeServingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Open(path)
-	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 7") {
+	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 8") {
 		t.Fatalf("older schema did not fail clearly: %v", err)
 	}
 }
@@ -657,6 +657,12 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	plannerClient := Client{Address: address, Token: agents.plannerToken}
 	reviewerClient := Client{Address: address, Token: agents.reviewerToken}
 	ownerClient := Client{Address: address, Token: agents.scope.ScopeToken}
+	outputStream, err := ownerClient.CreateOutputStream(ctx, CreateOutputStreamInput{
+		Name: "mcp-output", PublisherAgentIDs: []string{agents.planner.AgentID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	escalation, err := plannerClient.AskHuman(ctx, AskHumanInput{Question: "Proceed?"})
 	if err != nil {
 		t.Fatal(err)
@@ -700,7 +706,7 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 13 {
+	if err != nil || len(tools.Tools) != 14 {
 		t.Fatalf("unexpected tools: %d, %v", len(tools.Tools), err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_peers", Arguments: map[string]any{}})
@@ -724,6 +730,16 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	}
 	if _, ok := structured["tasks"].([]any); !ok {
 		t.Fatalf("MCP list_tasks must return a tasks array: %#v", result.StructuredContent)
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "publish_output", Arguments: map[string]any{
+		"streamId": outputStream.ID, "contentType": "application/json", "value": map[string]any{"status": "ready"},
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("MCP publish_output failed: %#v, %v", result, err)
+	}
+	latest, err := ownerClient.LatestOutput(ctx, outputStream.ID)
+	if err != nil || latest == nil || latest.Sequence != 1 {
+		t.Fatalf("MCP output was not stored: %#v, %v", latest, err)
 	}
 	type callResult struct {
 		result *mcp.CallToolResult

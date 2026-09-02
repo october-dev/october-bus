@@ -19,7 +19,7 @@ npm install @october-dev/october-bus@next
 Start the daemon, create a scope with the October Bus CLI, and set the returned token as `OCTOBER_BUS_SCOPE_TOKEN`.
 
 ```ts
-import { OctoberBusClient, OctoberBusScopeClient } from '@october-dev/october-bus'
+import { OctoberBusClient, OctoberBusOutputClient, OctoberBusScopeClient } from '@october-dev/october-bus'
 
 const address = 'http://127.0.0.1:4765'
 const scope = new OctoberBusScopeClient(address, process.env.OCTOBER_BUS_SCOPE_TOKEN!)
@@ -50,6 +50,22 @@ const issued = await scope.createA2APrincipal({
   label: 'CI reviewer'
 })
 // Store issued.credential securely. It cannot be retrieved later.
+
+const outputStream = await scope.createOutputStream({
+  name: 'site-preview',
+  publisherAgentIds: ['reviewer']
+})
+await reviewer.publishOutput(outputStream.id, {
+  contentType: 'application/json',
+  value: { status: 'ready', url: 'https://example.test/preview' }
+})
+const outputReader = await scope.createOutputPrincipal({
+  streamId: outputStream.id,
+  label: 'Preview page',
+  permissions: ['read']
+})
+const outputs = new OctoberBusOutputClient(address, outputReader.credential)
+const latestOutput = await outputs.latest(outputStream.id)
 
 const dryRun = await scope.pruneScope({ before: '2026-08-01T00:00:00Z' })
 

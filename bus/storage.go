@@ -42,6 +42,11 @@ FROM events WHERE scope_id=? GROUP BY event_type ORDER BY event_type`},
 FROM a2a_publications WHERE scope_id=? GROUP BY enabled ORDER BY enabled DESC`},
 		{"credential", `SELECT CASE enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END,COUNT(*),COALESCE(SUM(length(CAST(label AS BLOB))),0),MIN(created_at)
 FROM scoped_credentials WHERE scope_id=? GROUP BY enabled ORDER BY enabled DESC`},
+		{"outputStream", `SELECT 'active',COUNT(*),COALESCE(SUM(length(CAST(name AS BLOB))),0),MIN(created_at)
+FROM output_streams WHERE scope_id=?`},
+		{"outputValue", `SELECT records.content_type,COUNT(*),COALESCE(SUM(length(CAST(records.value_json AS BLOB))+COALESCE(length(CAST(records.reference_json AS BLOB)),0)),0),MIN(records.created_at)
+FROM output_values AS records JOIN output_streams AS streams ON streams.stream_id=records.stream_id
+WHERE streams.scope_id=? GROUP BY records.content_type ORDER BY records.content_type`},
 	}
 	for _, query := range queries {
 		rows, err := tx.QueryContext(ctx, query.statement, scopeID)

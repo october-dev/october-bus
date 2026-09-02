@@ -175,6 +175,36 @@ func TestProtocolSchemas(t *testing.T) {
 	createPrincipal := resolvedSchema(t, path, "createA2APrincipalInput")
 	requireValid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": "Review service"})
 	requireInvalid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": ""})
+	outputStream := resolvedSchema(t, path, "outputStream")
+	requireValid(t, outputStream, map[string]any{
+		"id": "out_123", "scopeId": "scope", "name": "site-preview", "retentionLimit": float64(1000),
+		"currentSequence": float64(1), "minimumCursor": float64(0), "publisherAgentIds": []any{"reviewer"},
+		"createdAt": "2026-09-02T00:00:00Z", "updatedAt": "2026-09-02T00:00:01Z",
+	})
+	publishOutput := resolvedSchema(t, path, "publishOutputInput")
+	requireValid(t, publishOutput, map[string]any{
+		"contentType": "application/json", "value": map[string]any{"status": "ready"},
+		"reference": map[string]any{"uri": "https://example.test/preview", "title": "Preview"},
+	})
+	requireValid(t, publishOutput, map[string]any{"contentType": "text/plain", "value": "building"})
+	requireInvalid(t, publishOutput, map[string]any{"contentType": "text/plain", "value": map[string]any{"status": "wrong"}})
+	outputHistory := resolvedSchema(t, path, "outputHistory")
+	requireValid(t, outputHistory, map[string]any{
+		"streamId": "out_123", "values": []any{map[string]any{
+			"streamId": "out_123", "sequence": float64(1), "producerType": "agent", "producerId": "reviewer",
+			"contentType": "text/plain", "value": "ready", "createdAt": "2026-09-02T00:00:01Z",
+		}},
+		"nextSequence": float64(1), "currentSequence": float64(1), "minimumCursor": float64(0), "resyncRequired": false,
+	})
+	outputPrincipal := resolvedSchema(t, path, "issuedOutputPrincipal")
+	requireValid(t, outputPrincipal, map[string]any{
+		"principal": map[string]any{
+			"id": "cred_456", "scopeId": "scope", "streamId": "out_123", "label": "Dashboard",
+			"permissions": []any{"read"}, "enabled": true,
+			"createdAt": "2026-09-02T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+		},
+		"credential": "cred_456.secret",
+	})
 
 	prune := resolvedSchema(t, path, "pruneScopeInput")
 	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z"})
@@ -291,8 +321,32 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "issuedA2APrincipal"), jsonValue(t, principal))
+	outputStream, err := owner.CreateOutputStream(ctx, bus.CreateOutputStreamInput{
+		Name: "site-preview", PublisherAgentIDs: []string{"reviewer"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "outputStream"), jsonValue(t, outputStream))
+	outputPrincipal, err := owner.CreateOutputPrincipal(ctx, bus.CreateOutputPrincipalInput{
+		StreamID: outputStream.ID, Label: "Dashboard", Permissions: []bus.OutputPermission{bus.OutputRead},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "issuedOutputPrincipal"), jsonValue(t, outputPrincipal))
 	planner := bus.Client{Address: address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: address, Token: reviewerRegistration.AgentToken}
+	output, err := reviewer.PublishOutput(ctx, outputStream.ID, bus.PublishOutputInput{ContentType: bus.OutputText, Value: "ready"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "outputValue"), jsonValue(t, output))
+	history, err := (bus.Client{Address: address, Token: outputPrincipal.Credential}).OutputHistory(ctx, outputStream.ID, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "outputHistory"), jsonValue(t, history))
 	agent, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true})
 	if err != nil {
 		t.Fatal(err)

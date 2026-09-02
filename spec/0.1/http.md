@@ -73,6 +73,20 @@ Failures use:
 | `POST` | `/v1/a2a/principals/{principalId}/rotate` | Scope | Principal and replacement credential |
 | `POST` | `/v1/a2a/principals/{principalId}/enable` | Scope | Enabled principal |
 | `POST` | `/v1/a2a/principals/{principalId}/disable` | Scope | Disabled principal |
+| `POST` | `/v1/output-streams` | Scope | New output stream |
+| `GET` | `/v1/output-streams` | Scope | Output streams in the scope |
+| `GET` | `/v1/output-streams/{streamId}` | Scope | Output stream metadata |
+| `DELETE` | `/v1/output-streams/{streamId}` | Scope | Removed output stream, values, and principals |
+| `PUT` | `/v1/output-streams/{streamId}/publishers/{agentId}` | Scope | Authorized agent publisher |
+| `DELETE` | `/v1/output-streams/{streamId}/publishers/{agentId}` | Scope | Removed agent publisher |
+| `POST` | `/v1/output-principals` | Scope | New output principal and one-time credential |
+| `GET` | `/v1/output-principals` | Scope | Output principals without credentials |
+| `POST` | `/v1/output-principals/{principalId}/rotate` | Scope | Principal and replacement credential |
+| `POST` | `/v1/output-principals/{principalId}/enable` | Scope | Enabled output principal |
+| `POST` | `/v1/output-principals/{principalId}/disable` | Scope | Disabled output principal |
+| `POST` | `/outputs/{streamId}/values` | Agent or scoped publish | Published output value |
+| `GET` | `/outputs/{streamId}/values` | Scope or scoped read | Ordered output history |
+| `GET` | `/outputs/{streamId}/latest` | Scope or scoped read | Latest output value or `null` |
 | `GET` | `/a2a/agents/{publicationId}/.well-known/agent-card.json` | None | Enabled A2A Agent Card |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
@@ -82,13 +96,17 @@ Failures use:
 
 `POST /v1/scope/storage/prune` requires an RFC 3339 `before` timestamp. Omitted or false `execute` performs a dry run. `execute=true` removes the reported terminal records in one transaction.
 
-`GET /v1/events?after=0&limit=50&waitMs=25000` returns events after the supplied scope revision. The limit is 1 through 100 and the bounded wait is 0 through 25000 milliseconds. The default cursor is 0, the default limit is 50, and the default wait returns immediately. Event envelopes contain identifiers and state metadata, not message bodies, task text, progress text, escalation questions, answers, or credentials.
+`GET /v1/events?after=0&limit=50&waitMs=25000` returns events after the supplied scope revision. The limit is 1 through 100 and the bounded wait is 0 through 25000 milliseconds. The default cursor is 0, the default limit is 50, and the default wait returns immediately. Event envelopes contain identifiers and state metadata, not message bodies, task text, progress text, escalation questions, answers, output values, references, or credentials.
 
 Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that can still produce a complete continuation. A batch with `resyncRequired: true` means retention removed events needed by the supplied cursor. The client must rebuild its projection from the resource APIs and resume from the returned `nextRevision`.
 
 Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
 
 `POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authenticate to any `/v1` or `/mcp` operation.
+
+`POST /outputs/{streamId}/values` accepts `contentType`, `value`, and an optional URI reference. Agent credentials require an explicit publisher grant. Scoped output credentials require `publish` permission. `GET /outputs/{streamId}/values?after=0&limit=50` returns ordered values after the cursor. The limit is 1 through 100. Clients use `nextSequence` as their next cursor and rebuild from the latest value when `resyncRequired` is true.
+
+Output credentials are bearer credentials and MUST be sent in the `Authorization` header. Credentials in query strings are not accepted. Browser CORS policy is deployment configuration rather than part of the protocol.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

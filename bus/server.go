@@ -18,11 +18,12 @@ import (
 const maxBodyBytes = 1024 * 1024
 
 type ServerOptions struct {
-	Host          string
-	Port          int
-	AdminToken    string
-	StartedAt     string
-	PublicBaseURL string
+	Host           string
+	Port           int
+	AdminToken     string
+	StartedAt      string
+	PublicBaseURL  string
+	AllowedOrigins []string
 }
 
 type Server struct {
@@ -303,6 +304,19 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 		func(ctx context.Context, _ *mcp.CallToolRequest, input listTasksInput) (*mcp.CallToolResult, any, error) {
 			result, err := s.runtime.ListTasks(ctx, token, input.Ready)
 			return nil, map[string]any{"tasks": result}, err
+		})
+	type publishOutputToolInput struct {
+		StreamID    string            `json:"streamId"`
+		ContentType OutputContentType `json:"contentType"`
+		Value       any               `json:"value"`
+		Reference   *OutputReference  `json:"reference,omitempty"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "publish_output", Description: "Publish text or JSON to an authorized output stream."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input publishOutputToolInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.PublishOutput(ctx, token, input.StreamID, PublishOutputInput{
+				ContentType: input.ContentType, Value: input.Value, Reference: input.Reference,
+			})
+			return nil, result, err
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: "Request human input or permission."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input AskHumanInput) (*mcp.CallToolResult, any, error) {

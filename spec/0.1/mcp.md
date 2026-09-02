@@ -21,6 +21,7 @@ The reference CLI can forward this same MCP surface over stdio with `october-bus
 | `add_task_progress` | Append progress, a note, or a blocker to a claimed task |
 | `list_task_progress` | Read the ordered progress history for a task |
 | `list_tasks` | List shared tasks and optionally return only ready work |
+| `publish_output` | Publish text or JSON to an explicitly authorized output stream |
 | `ask_user` | Create a human escalation |
 | `get_node_status` | Read the current identity, lease, and lifecycle |
 

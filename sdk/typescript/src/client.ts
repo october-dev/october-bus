@@ -14,14 +14,22 @@ import type {
   CreateScopeInput,
   CreateScopeResult,
   CreateA2APrincipalInput,
+  CreateOutputPrincipalInput,
+  CreateOutputStreamInput,
   DeliveryReceipt,
   EventBatch,
   HumanEscalation,
   InboxReservation,
   IssuedA2APrincipal,
+  IssuedOutputPrincipal,
+  OutputHistory,
+  OutputPrincipal,
+  OutputStream,
+  OutputValue,
   PruneScopeInput,
   PruneScopeResult,
   PublishAgentCardInput,
+  PublishOutputInput,
   RegisterAgentInput,
   RegisterAgentResult,
   SendMessageInput,
@@ -56,6 +64,11 @@ export interface EventOptions extends OperationOptions {
   after?: number
   limit?: number
   waitMs?: number
+}
+
+export interface OutputHistoryOptions extends OperationOptions {
+  after?: number
+  limit?: number
 }
 
 async function request<T>(
@@ -286,6 +299,111 @@ export class OctoberBusScopeClient {
     )
   }
 
+  createOutputStream(input: CreateOutputStreamInput, options?: OperationOptions): Promise<OutputStream> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/output-streams', input, options)
+  }
+
+  listOutputStreams(options?: OperationOptions): Promise<OutputStream[]> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/output-streams', undefined, options)
+  }
+
+  outputStream(streamId: string, options?: OperationOptions): Promise<OutputStream> {
+    return request(
+      this.address,
+      this.scopeToken,
+      'GET',
+      `/v1/output-streams/${encodeURIComponent(streamId)}`,
+      undefined,
+      options
+    )
+  }
+
+  async removeOutputStream(streamId: string, options?: OperationOptions): Promise<void> {
+    await request(
+      this.address,
+      this.scopeToken,
+      'DELETE',
+      `/v1/output-streams/${encodeURIComponent(streamId)}`,
+      undefined,
+      options
+    )
+  }
+
+  setOutputPublisher(
+    streamId: string,
+    agentId: string,
+    allowed: boolean,
+    options?: OperationOptions
+  ): Promise<OutputStream> {
+    return request(
+      this.address,
+      this.scopeToken,
+      allowed ? 'PUT' : 'DELETE',
+      `/v1/output-streams/${encodeURIComponent(streamId)}/publishers/${encodeURIComponent(agentId)}`,
+      undefined,
+      options
+    )
+  }
+
+  createOutputPrincipal(input: CreateOutputPrincipalInput, options?: OperationOptions): Promise<IssuedOutputPrincipal> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/output-principals', input, options)
+  }
+
+  listOutputPrincipals(options?: OperationOptions): Promise<OutputPrincipal[]> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/output-principals', undefined, options)
+  }
+
+  rotateOutputPrincipal(principalId: string, options?: OperationOptions): Promise<IssuedOutputPrincipal> {
+    return request(
+      this.address,
+      this.scopeToken,
+      'POST',
+      `/v1/output-principals/${encodeURIComponent(principalId)}/rotate`,
+      {},
+      options
+    )
+  }
+
+  setOutputPrincipalEnabled(
+    principalId: string,
+    enabled: boolean,
+    options?: OperationOptions
+  ): Promise<OutputPrincipal> {
+    const action = enabled ? 'enable' : 'disable'
+    return request(
+      this.address,
+      this.scopeToken,
+      'POST',
+      `/v1/output-principals/${encodeURIComponent(principalId)}/${action}`,
+      {},
+      options
+    )
+  }
+
+  latestOutput(streamId: string, options?: OperationOptions): Promise<OutputValue | null> {
+    return request(
+      this.address,
+      this.scopeToken,
+      'GET',
+      `/outputs/${encodeURIComponent(streamId)}/latest`,
+      undefined,
+      options
+    )
+  }
+
+  outputHistory(streamId: string, options: OutputHistoryOptions = {}): Promise<OutputHistory> {
+    const { after = 0, limit = 50, ...operationOptions } = options
+    const query = new URLSearchParams({ after: String(after), limit: String(limit) })
+    return request(
+      this.address,
+      this.scopeToken,
+      'GET',
+      `/outputs/${encodeURIComponent(streamId)}/values?${query}`,
+      undefined,
+      operationOptions
+    )
+  }
+
   listEscalations(options?: OperationOptions): Promise<HumanEscalation[]> {
     return request(this.address, this.scopeToken, 'GET', '/v1/scope/escalations', undefined, options)
   }
@@ -313,6 +431,17 @@ export class OctoberBusClient {
 
   listPeers(options?: OperationOptions): Promise<Agent[]> {
     return request(this.address, this.agentToken, 'GET', '/v1/peers', undefined, options)
+  }
+
+  publishOutput(streamId: string, input: PublishOutputInput, options?: OperationOptions): Promise<OutputValue> {
+    return request(
+      this.address,
+      this.agentToken,
+      'POST',
+      `/outputs/${encodeURIComponent(streamId)}/values`,
+      input,
+      options
+    )
   }
 
   sendMessage(input: SendMessageInput, options?: OperationOptions): Promise<DeliveryReceipt> {
@@ -430,5 +559,47 @@ export class OctoberBusClient {
 
   mcpEndpoint(): { url: string; headers: Record<string, string> } {
     return { url: `${this.address}/mcp`, headers: { Authorization: `Bearer ${this.agentToken}` } }
+  }
+}
+
+export class OctoberBusOutputClient {
+  constructor(
+    readonly address: string,
+    private readonly credential: string
+  ) {}
+
+  publish(streamId: string, input: PublishOutputInput, options?: OperationOptions): Promise<OutputValue> {
+    return request(
+      this.address,
+      this.credential,
+      'POST',
+      `/outputs/${encodeURIComponent(streamId)}/values`,
+      input,
+      options
+    )
+  }
+
+  latest(streamId: string, options?: OperationOptions): Promise<OutputValue | null> {
+    return request(
+      this.address,
+      this.credential,
+      'GET',
+      `/outputs/${encodeURIComponent(streamId)}/latest`,
+      undefined,
+      options
+    )
+  }
+
+  history(streamId: string, options: OutputHistoryOptions = {}): Promise<OutputHistory> {
+    const { after = 0, limit = 50, ...operationOptions } = options
+    const query = new URLSearchParams({ after: String(after), limit: String(limit) })
+    return request(
+      this.address,
+      this.credential,
+      'GET',
+      `/outputs/${encodeURIComponent(streamId)}/values?${query}`,
+      undefined,
+      operationOptions
+    )
   }
 }

@@ -178,6 +178,91 @@ type IssuedA2APrincipal struct {
 	Credential string       `json:"credential"`
 }
 
+type OutputContentType string
+
+const (
+	OutputText OutputContentType = "text/plain"
+	OutputJSON OutputContentType = "application/json"
+)
+
+type OutputPermission string
+
+const (
+	OutputRead    OutputPermission = "read"
+	OutputPublish OutputPermission = "publish"
+)
+
+type OutputReference struct {
+	URI   string `json:"uri"`
+	Title string `json:"title,omitempty"`
+}
+
+type OutputStream struct {
+	ID                string   `json:"id"`
+	ScopeID           string   `json:"scopeId"`
+	Name              string   `json:"name"`
+	RetentionLimit    int      `json:"retentionLimit"`
+	CurrentSequence   int64    `json:"currentSequence"`
+	MinimumCursor     int64    `json:"minimumCursor"`
+	PublisherAgentIDs []string `json:"publisherAgentIds"`
+	CreatedAt         string   `json:"createdAt"`
+	UpdatedAt         string   `json:"updatedAt"`
+}
+
+type CreateOutputStreamInput struct {
+	Name              string   `json:"name"`
+	RetentionLimit    int      `json:"retentionLimit,omitempty"`
+	PublisherAgentIDs []string `json:"publisherAgentIds,omitempty"`
+}
+
+type PublishOutputInput struct {
+	ContentType OutputContentType `json:"contentType"`
+	Value       any               `json:"value"`
+	Reference   *OutputReference  `json:"reference,omitempty"`
+}
+
+type OutputValue struct {
+	StreamID     string            `json:"streamId"`
+	Sequence     int64             `json:"sequence"`
+	ProducerType string            `json:"producerType"`
+	ProducerID   string            `json:"producerId"`
+	ContentType  OutputContentType `json:"contentType"`
+	Value        any               `json:"value"`
+	Reference    *OutputReference  `json:"reference,omitempty"`
+	CreatedAt    string            `json:"createdAt"`
+}
+
+type OutputHistory struct {
+	StreamID        string        `json:"streamId"`
+	Values          []OutputValue `json:"values"`
+	NextSequence    int64         `json:"nextSequence"`
+	CurrentSequence int64         `json:"currentSequence"`
+	MinimumCursor   int64         `json:"minimumCursor"`
+	ResyncRequired  bool          `json:"resyncRequired"`
+}
+
+type OutputPrincipal struct {
+	ID          string             `json:"id"`
+	ScopeID     string             `json:"scopeId"`
+	StreamID    string             `json:"streamId"`
+	Label       string             `json:"label"`
+	Permissions []OutputPermission `json:"permissions"`
+	Enabled     bool               `json:"enabled"`
+	CreatedAt   string             `json:"createdAt"`
+	UpdatedAt   string             `json:"updatedAt"`
+}
+
+type CreateOutputPrincipalInput struct {
+	StreamID    string             `json:"streamId"`
+	Label       string             `json:"label"`
+	Permissions []OutputPermission `json:"permissions"`
+}
+
+type IssuedOutputPrincipal struct {
+	Principal  OutputPrincipal `json:"principal"`
+	Credential string          `json:"credential"`
+}
+
 type StorageRecordSummary struct {
 	RecordType     string `json:"recordType"`
 	State          string `json:"state"`

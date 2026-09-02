@@ -30,7 +30,7 @@ The bridge reads `OCTOBER_BUS_ADDRESS` and `OCTOBER_BUS_AGENT_TOKEN`, discovers 
 Agents can inspect the durable delivery state of a message they sent or
 received without opening SQLite or writing a client program. The command
 requires the agent credential and never reveals message bodies or shared
-context — only the receipt.
+context, only the receipt.
 
 ```bash
 october-bus message receipt <message-id> [--json] [--address <addr>]
@@ -93,6 +93,23 @@ Pass `--yes` to remove the reported records in one transaction. Only terminal me
 Pruning scope events can make an old event cursor incomplete. Event clients receive `resyncRequired` and must rebuild their projection from the resource APIs before continuing.
 
 Agent Card publications and remote principals are configuration records and are not removed by retention. Disable a publication to stop serving its public card and reject its principals. Disable an individual principal to suspend only that caller.
+
+Output streams apply their own bounded retention on every publication. The default is 1,000 values and the owner can select 1 through 10,000 when creating a stream. Removing a stream also removes its values and scoped principals.
+
+Browser output access is disabled unless the request origin is explicitly configured. Set a comma-separated exact allowlist before starting the daemon:
+
+```sh
+OCTOBER_BUS_ALLOWED_ORIGINS=http://127.0.0.1:8080,https://dashboard.example october-bus start
+```
+
+PowerShell uses the same setting:
+
+```powershell
+$env:OCTOBER_BUS_ALLOWED_ORIGINS = "http://127.0.0.1:8080,https://dashboard.example"
+october-bus start
+```
+
+The Bus never accepts output credentials in query strings. A server-to-server request without an `Origin` header is not affected by browser CORS configuration.
 
 Choose a cutoff older than the longest client retry window you support. Removing a message also removes its idempotency-key binding.
 

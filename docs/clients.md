@@ -8,8 +8,9 @@ Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
 - scope token for agent registration, peer links, Agent Card publications and remote principals, project task management, event streams, storage controls, and human escalation resolution;
-- agent token for heartbeat, discovery, messages, tasks, and escalation creation.
-- scoped A2A credential for one published A2A interface only.
+- agent token for heartbeat, discovery, messages, tasks, and escalation creation;
+- scoped A2A credential for one published A2A interface only;
+- scoped output credential for read or publish access to one output stream.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
 
@@ -57,6 +58,21 @@ progress, err := agent.AddTaskProgress(ctx, taskID, bus.AddTaskProgressInput{
     Kind: "progress",
     Text: "Retry behavior is implemented.",
 })
+
+stream, err := owner.CreateOutputStream(ctx, bus.CreateOutputStreamInput{
+    Name:              "site-preview",
+    PublisherAgentIDs: []string{"reviewer"},
+})
+value, err := agent.PublishOutput(ctx, stream.ID, bus.PublishOutputInput{
+    ContentType: bus.OutputJSON,
+    Value:       map[string]any{"status": "ready", "url": "https://example.test/preview"},
+})
+reader, err := owner.CreateOutputPrincipal(ctx, bus.CreateOutputPrincipalInput{
+    StreamID:    stream.ID,
+    Label:       "Preview page",
+    Permissions: []bus.OutputPermission{bus.OutputRead},
+})
+latest, err := (bus.Client{Address: address, Token: reader.Credential}).LatestOutput(ctx, stream.ID)
 ```
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
@@ -72,7 +88,7 @@ npm install @october-dev/october-bus@next
 ```
 
 ```ts
-import { OctoberBusAgentSession, OctoberBusScopeClient } from '@october-dev/october-bus'
+import { OctoberBusAgentSession, OctoberBusOutputClient, OctoberBusScopeClient } from '@october-dev/october-bus'
 
 const session = await OctoberBusAgentSession.start({
   address,
@@ -105,6 +121,22 @@ await session.client.addTaskProgress(taskId, {
   kind: 'progress',
   text: 'Retry behavior is implemented.'
 })
+
+const stream = await owner.createOutputStream({
+  name: 'site-preview',
+  publisherAgentIds: ['reviewer']
+})
+await session.client.publishOutput(stream.id, {
+  contentType: 'application/json',
+  value: { status: 'ready', url: 'https://example.test/preview' }
+})
+const reader = await owner.createOutputPrincipal({
+  streamId: stream.id,
+  label: 'Preview page',
+  permissions: ['read']
+})
+const outputs = new OctoberBusOutputClient(address, reader.credential)
+const latest = await outputs.latest(stream.id)
 ```
 
 Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox and event operations support bounded waits up to 25 seconds. The default request timeout is 30 seconds.
@@ -112,6 +144,10 @@ Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argu
 Persist an event batch's `nextRevision` only after applying the whole batch. If `resyncRequired` is true, rebuild from the resource APIs before saving the returned cursor. Event envelopes contain state metadata but not message, task, progress, or escalation contents.
 
 Store a remote principal credential when it is created. It cannot be retrieved later. Rotation returns a replacement and invalidates the previous value immediately. Principal lists never include credentials.
+
+Output history is independent of the scope event stream. Use `nextSequence` to continue an ordered read. If `resyncRequired` is true, read the latest value and resume from its sequence. Scope events include output metadata but never the published value or reference.
+
+The [live output page](../examples/output-stream) shows how a browser can display a coding agent's latest value with a read-only credential.
 
 Prefer bounded inbox waiting for efficient pull delivery. `pollInbox` provides an async iterator over repeated bounded waits. Use `withClaimedTask` to release a task if work or completion fails. Keep the managed session alive while holding a claim.
 

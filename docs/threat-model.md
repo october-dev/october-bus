@@ -25,6 +25,9 @@ Adapters and harnesses remain responsible for their own model access, files, too
 | Replaced or stale process | Agent authority is bound to the current execution and renewable lease |
 | Peer-name spoofing | Programmatic routing uses byte-exact agent IDs before unique exact display names |
 | Duplicate work from retries | Idempotency keys are permanent per sender and bound to the original content |
+| External output reader gains Bus authority | Output credentials are bound to one stream and explicit read or publish permissions |
+| Browser reads output from an untrusted site | Output CORS headers require an exact configured origin |
+| Output publisher exhausts local storage | Streams enforce bounded retention, payload limits, and per-principal rate limits |
 | Concurrent inbox consumers | Short reservations serialize delivery attempts and support redelivery |
 | Message or task flood | Per-scope and per-agent limits return explicit backpressure |
 | Agent resolves its own escalation | Only scope authority can resolve human escalation |

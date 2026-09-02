@@ -239,7 +239,13 @@ func StartDaemon(ctx context.Context, port int, paths *DaemonPaths) (*RunningDae
 		return nil, err
 	}
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	server := NewServer(runtimeValue, ServerOptions{Port: port, AdminToken: adminToken, StartedAt: startedAt})
+	allowedOrigins := []string{}
+	for _, origin := range strings.Split(os.Getenv("OCTOBER_BUS_ALLOWED_ORIGINS"), ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			allowedOrigins = append(allowedOrigins, origin)
+		}
+	}
+	server := NewServer(runtimeValue, ServerOptions{Port: port, AdminToken: adminToken, StartedAt: startedAt, AllowedOrigins: unique(allowedOrigins)})
 	address, err := server.Start()
 	if err != nil {
 		runtimeValue.Close()

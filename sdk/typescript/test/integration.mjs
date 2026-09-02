@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   OctoberBusAdminClient,
   OctoberBusAgentSession,
+  OctoberBusOutputClient,
   OctoberBusScopeClient,
   newIdempotencyKey,
   withClaimedTask
@@ -109,6 +110,30 @@ try {
   await reviewerSession.setState('ready', true)
   const planner = plannerSession.client
   const reviewer = reviewerSession.client
+  const outputStream = await owner.createOutputStream({
+    name: 'site-preview',
+    retentionLimit: 2,
+    publisherAgentIds: ['reviewer']
+  })
+  const outputReader = await owner.createOutputPrincipal({
+    streamId: outputStream.id,
+    label: 'Preview page',
+    permissions: ['read']
+  })
+  await reviewer.publishOutput(outputStream.id, {
+    contentType: 'text/plain',
+    value: 'building'
+  })
+  await reviewer.publishOutput(outputStream.id, {
+    contentType: 'application/json',
+    value: { status: 'ready', url: 'https://example.test/preview' }
+  })
+  const outputs = new OctoberBusOutputClient(run.address, outputReader.credential)
+  assert.deepEqual((await outputs.latest(outputStream.id)).value, {
+    status: 'ready',
+    url: 'https://example.test/preview'
+  })
+  assert.equal((await outputs.history(outputStream.id)).values.length, 2)
   const initialEvents = await owner.events({ limit: 100 })
   assert.equal(initialEvents.events.length > 0, true)
   assert.equal(initialEvents.resyncRequired, false)
@@ -160,6 +185,12 @@ try {
   assert.equal(progress[0].text, 'Review started')
   const storage = await owner.storageSummary()
   assert.equal(storage.records.some((record) => record.recordType === 'task' && record.state === 'done'), true)
+  assert.equal(
+    storage.records
+      .filter((record) => record.recordType === 'outputValue')
+      .reduce((count, record) => count + record.count, 0),
+    2
+  )
   const before = new Date(Date.now() + 60_000).toISOString()
   const dryRun = await owner.pruneScope({ before })
   assert.equal(dryRun.dryRun, true)

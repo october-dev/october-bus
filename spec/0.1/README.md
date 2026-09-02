@@ -138,7 +138,7 @@ Retention MUST support a dry run and report exact record counts. The reference C
 
 Scope authority MAY follow a durable event log to update external projections. Each event has an opaque ID and a scope-local, monotonically increasing revision. Clients resume by requesting events after the last revision they committed.
 
-Events describe state changes without carrying protected record content. Message bodies and context, task titles, descriptions and progress text, escalation questions and answers, and credentials MUST NOT appear in an event envelope.
+Events describe state changes without carrying protected record content. Message bodies and context, task titles, descriptions and progress text, escalation questions and answers, output values and references, and credentials MUST NOT appear in an event envelope.
 
 Protocol 0.1 defines these event types:
 
@@ -149,6 +149,7 @@ Protocol 0.1 defines these event types:
 - `escalation.created` and `escalation.resolved`
 - `a2a.publication_created`, `a2a.publication_enabled`, and `a2a.publication_disabled`
 - `credential.created`, `credential.rotated`, `credential.enabled`, and `credential.disabled`
+- `output.stream_created`, `output.stream_removed`, `output.publisher_added`, `output.publisher_removed`, and `output.published`
 
 Each listed transition event MUST be committed atomically with the transition it describes. Retrying an idempotent operation that made no new state change MUST NOT append another event. A heartbeat that only renews a lease does not append a lifecycle event.
 
@@ -172,6 +173,20 @@ Rotating a principal invalidates its previous credential immediately without cha
 
 A scoped A2A credential grants no access to the Bus HTTP API, MCP endpoint, scope authority, agent authority, other publications, or daemon administration. Implementations MUST store a one-way digest instead of the plaintext credential and compare presented credentials in constant time.
 
+## Output streams
+
+A scope owner MAY create a named output stream for values consumed by websites, dashboards, automations, and other tools. A stream has an opaque ID, a scope-unique name, a retention limit, a monotonically increasing sequence, and an explicit set of agent publishers.
+
+An authorized agent or scoped output principal MAY publish `text/plain` or `application/json` values. Each value records its sequence, producer type, producer ID, content type, creation time, and an optional absolute URI reference. Text values are limited to 64 KiB. Encoded JSON values are limited to 256 KiB. References contain no fetched content and do not expand authority.
+
+The latest value and ordered history are readable with scope authority or a scoped output principal with `read` permission. A principal can hold `read`, `publish`, or both permissions for exactly one stream. The credential has no access to messages, context, tasks, agents, MCP, administration, or another stream.
+
+Output principal credentials follow the same one-time issuance, secure digest storage, rotation, and enable or disable rules as scoped A2A credentials. Listing principals never returns their credentials. Removing a stream also removes its values and principals.
+
+History cursors use stream sequence numbers. When bounded retention removes values required by an old cursor, the result sets `resyncRequired` and supplies the current sequence. Output values are retained independently of the scope event log. Each publication also appends a metadata-only `output.published` event so scope event followers can react without receiving the output value itself.
+
+The reference runtime retains 1,000 values by default and permits a configured limit from 1 through 10,000. It limits each publishing identity to 120 publications per minute and each scoped reader to 600 reads per minute. Scope-owner reads are not rate limited. A scope can contain at most 1,000 output streams and a stream can authorize at most 128 agent publishers.
+
 ## Human escalation
 
 An agent MAY create an escalation with a question and either no options or two to four options. Creating an escalation does not grant the agent permission or answer the question.
@@ -183,9 +198,10 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, manage Agent Card publications and their remote principals, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
-| Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
+| Scope token | Register and list agents, create peer links, manage Agent Card publications and remote principals, manage output streams and readers, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
+| Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, publish to explicitly allowed output streams, create and read escalations |
 | Scoped A2A credential | Invoke one published A2A agent interface when that operation is supported |
+| Scoped output credential | Read or publish one output stream according to its explicit permissions |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.
 

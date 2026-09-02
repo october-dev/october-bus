@@ -226,6 +226,50 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		return result, err
 	}
 
+	var outputStream bus.OutputStream
+	if err := record.check("addressable-output-streams", func() error {
+		stream, err := owner.CreateOutputStream(ctx, bus.CreateOutputStreamInput{
+			Name: "build-status", RetentionLimit: 2, PublisherAgentIDs: []string{"reviewer"},
+		})
+		if err != nil || stream.ID == "" || stream.RetentionLimit != 2 {
+			return fmt.Errorf("unexpected output stream: %#v, %v", stream, err)
+		}
+		outputStream = stream
+		reader, err := owner.CreateOutputPrincipal(ctx, bus.CreateOutputPrincipalInput{
+			StreamID: stream.ID, Label: "Dashboard", Permissions: []bus.OutputPermission{bus.OutputRead},
+		})
+		if err != nil || reader.Credential == "" {
+			return fmt.Errorf("unexpected output reader: %#v, %v", reader, err)
+		}
+		for _, text := range []string{"queued", "building", "ready"} {
+			if _, err := reviewer.PublishOutput(ctx, stream.ID, bus.PublishOutputInput{ContentType: bus.OutputText, Value: text}); err != nil {
+				return err
+			}
+		}
+		outputReader := bus.Client{Address: options.Address, Token: reader.Credential}
+		latest, err := outputReader.LatestOutput(ctx, stream.ID)
+		if err != nil || latest == nil || latest.Sequence != 3 || latest.Value != "ready" {
+			return fmt.Errorf("unexpected latest output: %#v, %v", latest, err)
+		}
+		history, err := outputReader.OutputHistory(ctx, stream.ID, 1, 10)
+		if err != nil || history.ResyncRequired || len(history.Values) != 2 {
+			return fmt.Errorf("unexpected output history: %#v, %v", history, err)
+		}
+		stale, err := outputReader.OutputHistory(ctx, stream.ID, 0, 10)
+		if err != nil || !stale.ResyncRequired || stale.MinimumCursor != 1 {
+			return fmt.Errorf("unexpected stale output cursor: %#v, %v", stale, err)
+		}
+		if _, err := outputReader.PublishOutput(ctx, stream.ID, bus.PublishOutputInput{ContentType: bus.OutputText, Value: "denied"}); requireCode(err, bus.CodeUnauthenticated) != nil {
+			return fmt.Errorf("read credential published output: %v", err)
+		}
+		if _, err := planner.PublishOutput(ctx, stream.ID, bus.PublishOutputInput{ContentType: bus.OutputText, Value: "denied"}); requireCode(err, bus.CodePermissionDenied) != nil {
+			return fmt.Errorf("unapproved agent published output: %v", err)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("presence-and-discovery", func() error {
 		if _, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000}); err != nil {
 			return err
@@ -586,7 +630,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		if err != nil {
 			return err
 		}
-		if len(tools.Tools) != 13 {
+		if len(tools.Tools) != 14 {
 			return fmt.Errorf("unexpected MCP tool count: %d", len(tools.Tools))
 		}
 		peers, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_peers", Arguments: map[string]any{}})
@@ -600,7 +644,16 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		if err != nil {
 			return err
 		}
-		return requireStructuredArray(tasks, "tasks")
+		if err := requireStructuredArray(tasks, "tasks"); err != nil {
+			return err
+		}
+		published, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "publish_output", Arguments: map[string]any{
+			"streamId": outputStream.ID, "contentType": "text/plain", "value": "published through MCP",
+		}})
+		if err != nil || published.IsError {
+			return fmt.Errorf("MCP publish_output failed: %#v, %v", published, err)
+		}
+		return nil
 	}); err != nil {
 		return result, err
 	}

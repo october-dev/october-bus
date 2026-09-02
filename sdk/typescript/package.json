@@ -1,6 +1,6 @@
 {
   "name": "@october-dev/october-bus",
-  "version": "0.1.0-next.9",
+  "version": "0.1.0-next.10",
   "description": "TypeScript client for October Bus.",
   "type": "module",
   "sideEffects": false,

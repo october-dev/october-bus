@@ -410,12 +410,155 @@
         "credential": { "type": "string", "minLength": 1 }
       }
     },
+    "outputContentType": {
+      "type": "string",
+      "enum": ["text/plain", "application/json"]
+    },
+    "outputPermission": {
+      "type": "string",
+      "enum": ["read", "publish"]
+    },
+    "outputReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string", "format": "uri", "minLength": 1, "maxLength": 4096 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "outputStream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scopeId", "name", "retentionLimit", "currentSequence", "minimumCursor", "publisherAgentIds", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/identifier" },
+        "retentionLimit": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "currentSequence": { "type": "integer", "minimum": 0 },
+        "minimumCursor": { "type": "integer", "minimum": 0 },
+        "publisherAgentIds": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "createOutputStreamInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "retentionLimit": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "publisherAgentIds": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    },
+    "publishOutputInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentType", "value"],
+      "properties": {
+        "contentType": { "$ref": "#/$defs/outputContentType" },
+        "value": { "not": { "type": "null" } },
+        "reference": { "$ref": "#/$defs/outputReference" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "contentType": { "const": "text/plain" } } },
+          "then": { "properties": { "value": { "type": "string", "maxLength": 65536 } } }
+        }
+      ]
+    },
+    "outputValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["streamId", "sequence", "producerType", "producerId", "contentType", "value", "createdAt"],
+      "properties": {
+        "streamId": { "$ref": "#/$defs/identifier" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "producerType": { "type": "string", "enum": ["agent", "principal"] },
+        "producerId": { "$ref": "#/$defs/identifier" },
+        "contentType": { "$ref": "#/$defs/outputContentType" },
+        "value": { "not": { "type": "null" } },
+        "reference": { "$ref": "#/$defs/outputReference" },
+        "createdAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "outputHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["streamId", "values", "nextSequence", "currentSequence", "minimumCursor", "resyncRequired"],
+      "properties": {
+        "streamId": { "$ref": "#/$defs/identifier" },
+        "values": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/outputValue" } },
+        "nextSequence": { "type": "integer", "minimum": 0 },
+        "currentSequence": { "type": "integer", "minimum": 0 },
+        "minimumCursor": { "type": "integer", "minimum": 0 },
+        "resyncRequired": { "type": "boolean" }
+      }
+    },
+    "outputPrincipal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scopeId", "streamId", "label", "permissions", "enabled", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "streamId": { "$ref": "#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/outputPermission" }
+        },
+        "enabled": { "type": "boolean" },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "createOutputPrincipalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["streamId", "label", "permissions"],
+      "properties": {
+        "streamId": { "$ref": "#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/outputPermission" }
+        }
+      }
+    },
+    "issuedOutputPrincipal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "credential"],
+      "properties": {
+        "principal": { "$ref": "#/$defs/outputPrincipal" },
+        "credential": { "type": "string", "minLength": 1 }
+      }
+    },
     "storageRecordSummary": {
       "type": "object",
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication", "credential"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication", "credential", "outputStream", "outputValue"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },

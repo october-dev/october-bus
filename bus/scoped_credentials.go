@@ -110,7 +110,11 @@ func splitScopedCredential(value string) (string, string, bool) {
 	return credentialID, secret, true
 }
 
-func (s *Store) authenticateScopedCredential(ctx context.Context, supplied string, grant scopedCredentialGrant) (scopedCredentialRecord, error) {
+type scopedCredentialQuery interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func authenticateScopedCredential(ctx context.Context, query scopedCredentialQuery, supplied string, grant scopedCredentialGrant) (scopedCredentialRecord, error) {
 	credentialID, secret, valid := splitScopedCredential(supplied)
 	if !valid {
 		secureEqual(tokenDigest("invalid"), tokenDigest(supplied))
@@ -119,7 +123,7 @@ func (s *Store) authenticateScopedCredential(ctx context.Context, supplied strin
 	var record scopedCredentialRecord
 	var enabled int
 	var expectedHash string
-	err := s.db.QueryRowContext(ctx, `SELECT c.credential_id,c.scope_id,c.label,c.enabled,c.created_at,c.updated_at,c.token_hash
+	err := query.QueryRowContext(ctx, `SELECT c.credential_id,c.scope_id,c.label,c.enabled,c.created_at,c.updated_at,c.token_hash
 FROM scoped_credentials c
 JOIN scoped_credential_grants g ON g.credential_id=c.credential_id
 WHERE c.credential_id=? AND g.resource_type=? AND g.resource_id=? AND g.permission=?`,
@@ -138,4 +142,8 @@ WHERE c.credential_id=? AND g.resource_type=? AND g.resource_id=? AND g.permissi
 		return scopedCredentialRecord{}, Errorf(CodeUnauthenticated, "Invalid scoped credential")
 	}
 	return record, nil
+}
+
+func (s *Store) authenticateScopedCredential(ctx context.Context, supplied string, grant scopedCredentialGrant) (scopedCredentialRecord, error) {
+	return authenticateScopedCredential(ctx, s.db, supplied, grant)
 }
