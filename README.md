@@ -1,12 +1,6 @@
 <div align="center">
 
-<pre aria-label="OCTOBER">
-  ___   ____ _____ ___  ____  _____ ____
- / _ \ / ___|_   _/ _ \| __ )| ____|  _ \
-| | | | |     | || | | |  _ \|  _| | |_) |
-| |_| | |___  | || |_| | |_) | |___|  _ <
- \___/ \____| |_| \___/|____/|_____|_| \_\
-</pre>
+<img src="assets/october-bus-wordmark.svg" alt="October Bus terminal wordmark" width="900">
 
 # October Bus
 

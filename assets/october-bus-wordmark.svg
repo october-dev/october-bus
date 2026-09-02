@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 230" role="img" aria-labelledby="title description">
+  <title id="title">October Bus</title>
+  <desc id="description">October Bus rendered in teal, sapphire, violet, copper, and brass terminal block lettering above a transit line.</desc>
+
+  <defs>
+    <linearGradient id="route" x1="20" y1="0" x2="1135" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4FD1C5"/>
+      <stop offset="0.28" stop-color="#409FD7"/>
+      <stop offset="0.56" stop-color="#7C68D3"/>
+      <stop offset="0.78" stop-color="#B16FA8"/>
+      <stop offset="1" stop-color="#D7A94F"/>
+    </linearGradient>
+  </defs>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace" font-size="18" font-weight="700" xml:space="preserve">
+    <g fill="#4FD1C5" transform="translate(20 0)">
+      <text y="32"> ██████╗</text>
+      <text y="62">██╔═══██╗</text>
+      <text y="92">██║   ██║</text>
+      <text y="122">██║   ██║</text>
+      <text y="152">╚██████╔╝</text>
+      <text y="182"> ╚═════╝</text>
+    </g>
+    <g fill="#3AB8C7" transform="translate(142 0)">
+      <text y="32"> ██████╗</text>
+      <text y="62">██╔════╝</text>
+      <text y="92">██║</text>
+      <text y="122">██║</text>
+      <text y="152">╚██████╗</text>
+      <text y="182"> ╚═════╝</text>
+    </g>
+    <g fill="#409FD7" transform="translate(246 0)">
+      <text y="32">████████╗</text>
+      <text y="62">╚══██╔══╝</text>
+      <text y="92">   ██║</text>
+      <text y="122">   ██║</text>
+      <text y="152">   ██║</text>
+      <text y="182">   ╚═╝</text>
+    </g>
+    <g fill="#4D86D9" transform="translate(360 0)">
+      <text y="32"> ██████╗</text>
+      <text y="62">██╔═══██╗</text>
+      <text y="92">██║   ██║</text>
+      <text y="122">██║   ██║</text>
+      <text y="152">╚██████╔╝</text>
+      <text y="182"> ╚═════╝</text>
+    </g>
+    <g fill="#6272D8" transform="translate(482 0)">
+      <text y="32">██████╗</text>
+      <text y="62">██╔══██╗</text>
+      <text y="92">██████╔╝</text>
+      <text y="122">██╔══██╗</text>
+      <text y="152">██████╔╝</text>
+      <text y="182">╚═════╝</text>
+    </g>
+    <g fill="#7C68D3" transform="translate(585 0)">
+      <text y="32">███████╗</text>
+      <text y="62">██╔════╝</text>
+      <text y="92">█████╗</text>
+      <text y="122">██╔══╝</text>
+      <text y="152">███████╗</text>
+      <text y="182">╚══════╝</text>
+    </g>
+    <g fill="#9662C8" transform="translate(688 0)">
+      <text y="32">██████╗</text>
+      <text y="62">██╔══██╗</text>
+      <text y="92">██████╔╝</text>
+      <text y="122">██╔══██╗</text>
+      <text y="152">██║  ██║</text>
+      <text y="182">╚═╝  ╚═╝</text>
+    </g>
+    <g fill="#B16FA8" transform="translate(823 0)">
+      <text y="32">██████╗</text>
+      <text y="62">██╔══██╗</text>
+      <text y="92">██████╔╝</text>
+      <text y="122">██╔══██╗</text>
+      <text y="152">██████╔╝</text>
+      <text y="182">╚═════╝</text>
+    </g>
+    <g fill="#C8896B" transform="translate(926 0)">
+      <text y="32">██╗   ██╗</text>
+      <text y="62">██║   ██║</text>
+      <text y="92">██║   ██║</text>
+      <text y="122">██║   ██║</text>
+      <text y="152">╚██████╔╝</text>
+      <text y="182"> ╚═════╝</text>
+    </g>
+    <g fill="#D7A94F" transform="translate(1048 0)">
+      <text y="32">███████╗</text>
+      <text y="62">██╔════╝</text>
+      <text y="92">███████╗</text>
+      <text y="122">╚════██║</text>
+      <text y="152">███████║</text>
+      <text y="182">╚══════╝</text>
+    </g>
+  </g>
+
+  <path d="M20 211H1135" fill="none" stroke="url(#route)" stroke-width="3" stroke-linecap="round"/>
+  <g fill="none" stroke-width="3">
+    <circle cx="70" cy="211" r="5" stroke="#4FD1C5"/>
+    <circle cx="191" cy="211" r="5" stroke="#3AB8C7"/>
+    <circle cx="295" cy="211" r="5" stroke="#409FD7"/>
+    <circle cx="410" cy="211" r="5" stroke="#4D86D9"/>
+    <circle cx="524" cy="211" r="5" stroke="#6272D8"/>
+    <circle cx="627" cy="211" r="5" stroke="#7C68D3"/>
+    <circle cx="730" cy="211" r="5" stroke="#9662C8"/>
+    <circle cx="865" cy="211" r="5" stroke="#B16FA8"/>
+    <circle cx="978" cy="211" r="5" stroke="#C8896B"/>
+    <circle cx="1090" cy="211" r="5" stroke="#D7A94F"/>
+  </g>
+</svg>
