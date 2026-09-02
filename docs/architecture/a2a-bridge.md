@@ -11,7 +11,7 @@ The first bridge targets A2A 1.0 over HTTP+JSON. JSON-RPC and gRPC are not adver
 | Component | Pin |
 | --- | --- |
 | A2A specification | `v1.0.0` at `173695755607e884aa9acf8ce4feed90e32727a1` |
-| A2A Go SDK | `v2.4.0` at `5736cc7c76905476840257b2c3b0f84a6fea8134` |
+| A2A Go SDK | `v2.5.0` at `9d95b95445f4208ba77f48a137a278067937adb7` |
 | A2A TCK | commit `107a5fd4ccc129b9d9335c797379779834968cd9` |
 
 SDK versions and A2A protocol versions are independent. The bridge records both.
