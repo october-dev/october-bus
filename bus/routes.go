@@ -153,6 +153,9 @@ func (s *Server) newRouter() http.Handler {
 		routeMethod{http.MethodGet, s.listA2APrincipals},
 		routeMethod{http.MethodPost, s.createA2APrincipal},
 	)
+	registerRoute(router, "/v1/a2a/principals/usage",
+		routeMethod{http.MethodGet, s.listA2APrincipalUsage},
+	)
 	registerRoute(router, "/v1/a2a/principals/{principalId}/rotate",
 		routeMethod{http.MethodPost, s.rotateA2APrincipal},
 	)

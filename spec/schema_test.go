@@ -175,6 +175,15 @@ func TestProtocolSchemas(t *testing.T) {
 	createPrincipal := resolvedSchema(t, path, "createA2APrincipalInput")
 	requireValid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": "Review service"})
 	requireInvalid(t, createPrincipal, map[string]any{"publicationId": "pub_123", "label": ""})
+	principalUsage := resolvedSchema(t, path, "a2aPrincipalUsage")
+	requireValid(t, principalUsage, map[string]any{
+		"principalId": "cred_123", "publicationId": "pub_123", "unfinishedMessages": float64(2),
+		"unfinishedBytes": float64(1024), "messageLimit": float64(1000), "byteLimit": float64(16777216),
+	})
+	requireInvalid(t, principalUsage, map[string]any{
+		"principalId": "cred_123", "publicationId": "pub_123", "unfinishedMessages": float64(-1),
+		"unfinishedBytes": float64(0), "messageLimit": float64(1000), "byteLimit": float64(16777216),
+	})
 	outputStream := resolvedSchema(t, path, "outputStream")
 	requireValid(t, outputStream, map[string]any{
 		"id": "out_123", "scopeId": "scope", "name": "site-preview", "retentionLimit": float64(1000),
@@ -349,6 +358,11 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "issuedA2APrincipal"), jsonValue(t, principal))
+	principalUsage, err := owner.ListA2APrincipalUsage(ctx)
+	if err != nil || len(principalUsage) != 1 {
+		t.Fatalf("unexpected principal usage: %#v, %v", principalUsage, err)
+	}
+	requireValid(t, resolvedSchema(t, path, "a2aPrincipalUsage"), jsonValue(t, principalUsage[0]))
 	outputStream, err := owner.CreateOutputStream(ctx, bus.CreateOutputStreamInput{
 		Name: "site-preview", PublisherAgentIDs: []string{"reviewer"},
 	})

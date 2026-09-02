@@ -416,6 +416,19 @@
         "credential": { "type": "string", "minLength": 1 }
       }
     },
+    "a2aPrincipalUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principalId", "publicationId", "unfinishedMessages", "unfinishedBytes", "messageLimit", "byteLimit"],
+      "properties": {
+        "principalId": { "$ref": "#/$defs/identifier" },
+        "publicationId": { "$ref": "#/$defs/identifier" },
+        "unfinishedMessages": { "type": "integer", "minimum": 0 },
+        "unfinishedBytes": { "type": "integer", "minimum": 0 },
+        "messageLimit": { "type": "integer", "minimum": 1, "maximum": 9999 },
+        "byteLimit": { "type": "integer", "minimum": 1, "maximum": 655294464 }
+      }
+    },
     "a2aTaskState": {
       "type": "string",
       "enum": ["submitted", "working", "input-required", "completed", "failed", "canceled", "rejected"]

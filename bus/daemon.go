@@ -227,7 +227,12 @@ func StartDaemon(ctx context.Context, port int, paths *DaemonPaths) (*RunningDae
 		_ = os.Remove(resolved.RunFile)
 		_ = os.Remove(resolved.LockFile)
 	}
-	runtimeValue, err := Open(resolved.Database)
+	runtimeOptions, err := runtimeOptionsFromEnvironment()
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	runtimeValue, err := OpenWithOptions(resolved.Database, runtimeOptions)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -261,6 +266,30 @@ func StartDaemon(ctx context.Context, port int, paths *DaemonPaths) (*RunningDae
 		return nil, err
 	}
 	return &RunningDaemon{Server: server, RunFile: run, Paths: resolved, lock: lock}, nil
+}
+
+func runtimeOptionsFromEnvironment() (RuntimeOptions, error) {
+	messageLimit, err := positiveEnvironmentInt64("OCTOBER_BUS_A2A_PRINCIPAL_MESSAGE_LIMIT")
+	if err != nil {
+		return RuntimeOptions{}, err
+	}
+	byteLimit, err := positiveEnvironmentInt64("OCTOBER_BUS_A2A_PRINCIPAL_BYTE_LIMIT")
+	if err != nil {
+		return RuntimeOptions{}, err
+	}
+	return RuntimeOptions{A2APrincipalMessageLimit: messageLimit, A2APrincipalByteLimit: byteLimit}, nil
+}
+
+func positiveEnvironmentInt64(name string) (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return value, nil
 }
 
 func (d *RunningDaemon) Stop(ctx context.Context) error {

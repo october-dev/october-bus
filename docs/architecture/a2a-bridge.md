@@ -34,6 +34,8 @@ Principal credentials are stored as one-way digests and shown only when created 
 
 The interface accepts a bearer credential only for the publication it was issued against. If the `A2A-Version` service parameter is present, it must contain exactly `1.0`. Unsupported message content and operations return A2A protocol errors without creating Bus work.
 
+Each remote principal has an independent budget for unfinished messages and text bytes. The check is part of the durable acceptance transaction, so concurrent requests cannot exceed it. This prevents one caller from consuming the capacity reserved for local agents or another remote principal. Scope owners can inspect usage metadata without seeing message bodies.
+
 ### Handler caching and conditional requests
 
 The handler returned by `a2abridge.NewAgentCardHandler` defaults to a

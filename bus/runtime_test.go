@@ -26,9 +26,13 @@ type testAgents struct {
 }
 
 func setupAgents(t *testing.T, source string) testAgents {
+	return setupAgentsWithOptions(t, source, RuntimeOptions{})
+}
+
+func setupAgentsWithOptions(t *testing.T, source string, options RuntimeOptions) testAgents {
 	t.Helper()
 	ctx := context.Background()
-	runtimeValue, err := Open(source)
+	runtimeValue, err := OpenWithOptions(source, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +59,19 @@ func requireCode(t *testing.T, err error, code ErrorCode) {
 	var failure *BusError
 	if !errors.As(err, &failure) || failure.Code != code {
 		t.Fatalf("expected %s, got %v", code, err)
+	}
+}
+
+func TestA2APrincipalLimitsLoadFromEnvironment(t *testing.T) {
+	t.Setenv("OCTOBER_BUS_A2A_PRINCIPAL_MESSAGE_LIMIT", "12")
+	t.Setenv("OCTOBER_BUS_A2A_PRINCIPAL_BYTE_LIMIT", "4096")
+	options, err := runtimeOptionsFromEnvironment()
+	if err != nil || options.A2APrincipalMessageLimit != 12 || options.A2APrincipalByteLimit != 4096 {
+		t.Fatalf("unexpected runtime options: %#v, %v", options, err)
+	}
+	t.Setenv("OCTOBER_BUS_A2A_PRINCIPAL_MESSAGE_LIMIT", "invalid")
+	if _, err := runtimeOptionsFromEnvironment(); err == nil {
+		t.Fatal("invalid A2A limit was accepted")
 	}
 }
 

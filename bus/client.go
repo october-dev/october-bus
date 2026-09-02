@@ -226,6 +226,10 @@ func (c Client) ListA2APrincipals(ctx context.Context) ([]A2APrincipal, error) {
 	return request[[]A2APrincipal](ctx, c, http.MethodGet, "/v1/a2a/principals", nil)
 }
 
+func (c Client) ListA2APrincipalUsage(ctx context.Context) ([]A2APrincipalUsage, error) {
+	return request[[]A2APrincipalUsage](ctx, c, http.MethodGet, "/v1/a2a/principals/usage", nil)
+}
+
 func (c Client) RotateA2APrincipal(ctx context.Context, principalID string) (IssuedA2APrincipal, error) {
 	return request[IssuedA2APrincipal](ctx, c, http.MethodPost, "/v1/a2a/principals/"+url.PathEscape(principalID)+"/rotate", map[string]any{})
 }

@@ -72,6 +72,51 @@ ORDER BY c.created_at,c.credential_id`, scopeID, a2aPublicationResource, a2aInvo
 	return principals, rows.Err()
 }
 
+func (s *Store) ListA2APrincipalUsage(ctx context.Context, scopeID string, limits A2APrincipalLimits) ([]A2APrincipalUsage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := expireMessages(ctx, tx, scopeID, nowMillis()); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT credentials.credential_id,grants.resource_id,
+COALESCE(SUM(CASE WHEN tasks.state NOT IN ('completed','failed','canceled','rejected') THEN 1 ELSE 0 END),0),
+COALESCE(SUM(CASE WHEN tasks.state NOT IN ('completed','failed','canceled','rejected') THEN length(CAST(messages.body AS BLOB)) ELSE 0 END),0)
+FROM scoped_credentials AS credentials
+JOIN scoped_credential_grants AS grants ON grants.credential_id=credentials.credential_id
+LEFT JOIN a2a_message_correlations AS correlations ON correlations.principal_id=credentials.credential_id
+LEFT JOIN a2a_tasks AS tasks ON tasks.task_id=correlations.task_id
+LEFT JOIN messages ON messages.message_id=correlations.bus_request_message_id
+WHERE credentials.scope_id=? AND grants.resource_type=? AND grants.permission=?
+GROUP BY credentials.credential_id,grants.resource_id,credentials.created_at
+ORDER BY credentials.created_at,credentials.credential_id`, scopeID, a2aPublicationResource, a2aInvokePermission)
+	if err != nil {
+		return nil, err
+	}
+	usage := []A2APrincipalUsage{}
+	for rows.Next() {
+		var item A2APrincipalUsage
+		if err := rows.Scan(&item.PrincipalID, &item.PublicationID, &item.UnfinishedMessages, &item.UnfinishedBytes); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		item.MessageLimit = limits.MessageLimit
+		item.ByteLimit = limits.ByteLimit
+		usage = append(usage, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return usage, nil
+}
+
 func a2aPrincipalPublication(ctx context.Context, tx *sql.Tx, scopeID, principalID string) (string, error) {
 	var publicationID string
 	err := tx.QueryRowContext(ctx, `SELECT g.resource_id FROM scoped_credentials c
@@ -183,6 +228,14 @@ func (r *Runtime) ListA2APrincipals(ctx context.Context, scopeToken string) ([]A
 		return nil, err
 	}
 	return r.store.ListA2APrincipals(ctx, scopeID)
+}
+
+func (r *Runtime) ListA2APrincipalUsage(ctx context.Context, scopeToken string) ([]A2APrincipalUsage, error) {
+	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	if err != nil {
+		return nil, err
+	}
+	return r.store.ListA2APrincipalUsage(ctx, scopeID, r.a2aPrincipalLimits)
 }
 
 func (r *Runtime) RotateA2APrincipal(ctx context.Context, scopeToken, principalID string) (IssuedA2APrincipal, error) {

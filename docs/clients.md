@@ -48,6 +48,8 @@ issued, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{
 // Send the issued credential as a bearer token. The first write surface
 // accepts text-only SendMessage requests and returns a durable A2A Task.
 
+principalUsage, err := owner.ListA2APrincipalUsage(ctx)
+
 for batch, err := range owner.WatchEvents(ctx, lastRevision, 50) {
     if err != nil {
         return err

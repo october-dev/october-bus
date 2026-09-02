@@ -32,6 +32,19 @@ func (s *Server) listA2APrincipals(response http.ResponseWriter, request *http.R
 	return nil
 }
 
+func (s *Server) listA2APrincipalUsage(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	usage, err := s.runtime.ListA2APrincipalUsage(request.Context(), token)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, usage)
+	return nil
+}
+
 func (s *Server) rotateA2APrincipal(response http.ResponseWriter, request *http.Request) error {
 	token, err := bearer(request)
 	if err != nil {

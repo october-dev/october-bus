@@ -149,7 +149,7 @@ func mapBusA2AError(err error) error {
 	case CodeConflict:
 		return a2a.NewError(a2a.ErrInvalidRequest, busErr.Message)
 	case CodeBackpressure:
-		return a2a.NewError(a2a.ErrServerError, "The durable inbox is at capacity")
+		return a2a.NewError(a2a.ErrServerError, "Remote work capacity is full")
 	default:
 		return a2a.NewError(a2a.ErrInternalError, "The message could not be accepted")
 	}

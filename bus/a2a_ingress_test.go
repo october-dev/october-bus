@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -101,5 +102,31 @@ func TestA2ASendMessageEnforcesAuthenticationVersionAndContent(t *testing.T) {
 	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation != nil {
 		t.Fatalf("rejected requests created work: %#v, %v", reservation, err)
+	}
+}
+
+func TestA2ASendMessageReturnsResourceLimitError(t *testing.T) {
+	agents := setupAgentsWithOptions(t, ":memory:", RuntimeOptions{
+		A2APrincipalMessageLimit: 10,
+		A2APrincipalByteLimit:    8,
+	})
+	defer agents.runtime.Close()
+	publication, issued := setupA2APrincipal(t, agents)
+	server := httptest.NewServer(NewServer(agents.runtime, ServerOptions{}))
+	defer server.Close()
+	transport := a2aTestTransport(t, server, publication.ID)
+	defer transport.Destroy()
+	params := a2aTestParams(issued.Credential, string(a2a.Version))
+
+	first := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("12345"))
+	first.ID = "limited-1"
+	if _, err := transport.SendMessage(context.Background(), params, &a2a.SendMessageRequest{Message: first}); err != nil {
+		t.Fatal(err)
+	}
+	second := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("6789"))
+	second.ID = "limited-2"
+	_, err := transport.SendMessage(context.Background(), params, &a2a.SendMessageRequest{Message: second})
+	if !errors.Is(err, a2a.ErrServerError) || !strings.Contains(err.Error(), "Remote work capacity is full") {
+		t.Fatalf("resource limit error = %v", err)
 	}
 }

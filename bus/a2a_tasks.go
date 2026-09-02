@@ -83,12 +83,15 @@ func a2aMessageRequestHash(input AcceptA2AMessageInput) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (s *Store) AcceptA2AMessage(ctx context.Context, principal A2APrincipal, input AcceptA2AMessageInput) (A2ATaskCorrelation, error) {
+func (s *Store) AcceptA2AMessage(ctx context.Context, principal A2APrincipal, limits A2APrincipalLimits, input AcceptA2AMessageInput) (A2ATaskCorrelation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return A2ATaskCorrelation{}, err
 	}
 	defer tx.Rollback()
+	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
+		return A2ATaskCorrelation{}, err
+	}
 	requestHash := a2aMessageRequestHash(input)
 	var existingTaskID, existingHash string
 	err = tx.QueryRowContext(ctx, `SELECT task_id,request_hash FROM a2a_message_correlations WHERE principal_id=? AND client_message_id=?`, principal.ID, input.ClientMessageID).Scan(&existingTaskID, &existingHash)
@@ -115,6 +118,22 @@ func (s *Store) AcceptA2AMessage(ctx context.Context, principal A2APrincipal, in
 	}
 	if err != nil {
 		return A2ATaskCorrelation{}, err
+	}
+	var unfinishedMessages, unfinishedBytes int64
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(messages.body AS BLOB))),0)
+FROM a2a_message_correlations AS correlations
+JOIN a2a_tasks AS tasks ON tasks.task_id=correlations.task_id
+JOIN messages ON messages.message_id=correlations.bus_request_message_id
+WHERE correlations.principal_id=? AND tasks.principal_id=? AND tasks.state NOT IN ('completed','failed','canceled','rejected')`,
+		principal.ID, principal.ID).Scan(&unfinishedMessages, &unfinishedBytes)
+	if err != nil {
+		return A2ATaskCorrelation{}, err
+	}
+	if unfinishedMessages >= limits.MessageLimit {
+		return A2ATaskCorrelation{}, Errorf(CodeBackpressure, "Remote principal unfinished message limit is full")
+	}
+	if unfinishedBytes+int64(len(input.Body)) > limits.ByteLimit {
+		return A2ATaskCorrelation{}, Errorf(CodeBackpressure, "Remote principal unfinished byte limit is full")
 	}
 	now := nowMillis()
 	taskID := input.TaskID
@@ -298,7 +317,7 @@ func (r *Runtime) AcceptA2AMessage(ctx context.Context, credential, publicationI
 	if err := validateText(input.Body, "body", 65536, false); err != nil {
 		return A2ATaskCorrelation{}, err
 	}
-	task, err := r.store.AcceptA2AMessage(ctx, principal, input)
+	task, err := r.store.AcceptA2AMessage(ctx, principal, r.a2aPrincipalLimits, input)
 	if err == nil {
 		r.signals.notify(signalKey{scopeID: principal.ScopeID, consumerID: task.TargetAgentID})
 		r.notifyScope(principal.ScopeID)

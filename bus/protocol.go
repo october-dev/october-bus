@@ -130,6 +130,20 @@ type AcceptA2AMessageInput struct {
 	Body            string `json:"body"`
 }
 
+type A2APrincipalLimits struct {
+	MessageLimit int64 `json:"messageLimit"`
+	ByteLimit    int64 `json:"byteLimit"`
+}
+
+type A2APrincipalUsage struct {
+	PrincipalID        string `json:"principalId"`
+	PublicationID      string `json:"publicationId"`
+	UnfinishedMessages int64  `json:"unfinishedMessages"`
+	UnfinishedBytes    int64  `json:"unfinishedBytes"`
+	MessageLimit       int64  `json:"messageLimit"`
+	ByteLimit          int64  `json:"byteLimit"`
+}
+
 type DeliveryReceipt struct {
 	MessageID         string        `json:"messageId"`
 	State             DeliveryState `json:"state"`

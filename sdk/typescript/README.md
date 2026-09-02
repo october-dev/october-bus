@@ -52,6 +52,7 @@ const issued = await scope.createA2APrincipal({
   label: 'CI reviewer'
 })
 // Store issued.credential securely. It cannot be retrieved later.
+const principalUsage = await scope.listA2APrincipalUsage()
 
 const outputStream = await scope.createOutputStream({
   name: 'site-preview',

@@ -94,6 +94,10 @@ Pruning scope events can make an old event cursor incomplete. Event clients rece
 
 Agent Card publications and remote principals are configuration records and are not removed by retention. Disable a publication to stop serving its public card and reject its principals. Disable an individual principal to suspend only that caller.
 
+Inbound A2A work is limited independently for each remote principal. The defaults are 1,000 unfinished messages and 16 MiB of unfinished text. Set `OCTOBER_BUS_A2A_PRINCIPAL_MESSAGE_LIMIT` and `OCTOBER_BUS_A2A_PRINCIPAL_BYTE_LIMIT` before starting the daemon to choose stricter limits. The message limit must be from 1 through 9,999. The byte limit must be from 1 through 655,294,464.
+
+Use the scope client `ListA2APrincipalUsage` method or `GET /v1/a2a/principals/usage` to inspect current usage. The result contains identifiers, counts, bytes, and limits, but no message content.
+
 Output streams apply their own bounded retention on every publication. The default is 1,000 values and the owner can select 1 through 10,000 when creating a stream. Removing a stream also removes its values and scoped principals.
 
 Browser output access is disabled unless the request origin is explicitly configured. Set a comma-separated exact allowlist before starting the daemon:

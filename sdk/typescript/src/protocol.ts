@@ -161,6 +161,15 @@ export interface IssuedA2APrincipal {
   credential: string
 }
 
+export interface A2APrincipalUsage {
+  principalId: string
+  publicationId: string
+  unfinishedMessages: number
+  unfinishedBytes: number
+  messageLimit: number
+  byteLimit: number
+}
+
 export type A2ATaskState =
   | 'submitted'
   | 'working'

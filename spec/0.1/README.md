@@ -194,6 +194,8 @@ Client message IDs are idempotent within one remote principal. Repeating an acce
 
 The reference HTTP+JSON binding accepts authenticated A2A `SendMessage` requests containing plain text parts. It joins multiple parts in order with a newline, creates a durable Bus request, and returns the correlated A2A Task. The first binding does not accept file, URL, data, extension, referenced-task, streaming, push-notification, task-read, task-list, or cancellation operations. Rejected requests do not create Bus work. If an `A2A-Version` header is present, it MUST contain exactly `1.0`.
 
+The reference runtime limits unfinished inbound work independently for each A2A principal. The defaults are 1,000 messages and 16 MiB of text. A limit check and message acceptance occur in the same transaction. Terminal tasks and undelivered expired requests release their capacity. Scope authority can inspect each principal's counts, bytes, and effective limits without reading message content.
+
 ## Output streams
 
 A scope owner MAY create a named output stream for values consumed by websites, dashboards, automations, and other tools. A stream has an opaque ID, a scope-unique name, a retention limit, a monotonically increasing sequence, and an explicit set of agent publishers.

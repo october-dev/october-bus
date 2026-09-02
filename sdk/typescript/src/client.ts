@@ -4,6 +4,7 @@ import type {
   Agent,
   AgentCardPublication,
   A2APrincipal,
+  A2APrincipalUsage,
   AgentLifecycle,
   AddTaskInput,
   AddTaskProgressInput,
@@ -287,6 +288,10 @@ export class OctoberBusScopeClient {
 
   listA2APrincipals(options?: OperationOptions): Promise<A2APrincipal[]> {
     return request(this.address, this.scopeToken, 'GET', '/v1/a2a/principals', undefined, options)
+  }
+
+  listA2APrincipalUsage(options?: OperationOptions): Promise<A2APrincipalUsage[]> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/a2a/principals/usage', undefined, options)
   }
 
   rotateA2APrincipal(principalId: string, options?: OperationOptions): Promise<IssuedA2APrincipal> {

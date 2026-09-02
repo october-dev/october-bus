@@ -72,6 +72,7 @@ Failures use:
 | `POST` | `/v1/a2a/publications/{publicationId}/disable` | Scope | Disabled publication |
 | `POST` | `/v1/a2a/principals` | Scope | New principal and one-time credential |
 | `GET` | `/v1/a2a/principals` | Scope | Remote A2A principals without credentials |
+| `GET` | `/v1/a2a/principals/usage` | Scope | Per-principal unfinished inbound usage and limits |
 | `POST` | `/v1/a2a/principals/{principalId}/rotate` | Scope | Principal and replacement credential |
 | `POST` | `/v1/a2a/principals/{principalId}/enable` | Scope | Enabled principal |
 | `POST` | `/v1/a2a/principals/{principalId}/disable` | Scope | Disabled principal |
@@ -106,6 +107,8 @@ Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that ca
 Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
 
 `POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authenticate to any `/v1` or `/mcp` operation.
+
+`GET /v1/a2a/principals/usage` returns unfinished message counts, text bytes, and effective limits for every A2A principal in the scope. It does not return message content. Terminal tasks and undelivered expired requests do not consume capacity.
 
 `POST /a2a/agents/{publicationId}/message:send` implements A2A 1.0 HTTP+JSON `SendMessage`. It accepts user messages made only of plain text parts and returns a durable A2A Task. The bearer credential must belong to the requested publication. The optional `A2A-Version` header must contain exactly `1.0`. Other A2A operations and content types return A2A protocol errors.
 

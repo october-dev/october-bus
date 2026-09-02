@@ -10,19 +10,55 @@ const (
 	// Inbox waits stay below the server and default client timeout of 30 seconds.
 	maxInboxWaitMS int64 = 25 * 1000
 	maxEventWaitMS int64 = 25 * 1000
+
+	DefaultA2APrincipalMessageLimit int64 = 1000
+	DefaultA2APrincipalByteLimit    int64 = 16 * 1024 * 1024
 )
 
 type Runtime struct {
-	store   *Store
-	signals *runtimeSignals
+	store              *Store
+	signals            *runtimeSignals
+	a2aPrincipalLimits A2APrincipalLimits
+}
+
+type RuntimeOptions struct {
+	A2APrincipalMessageLimit int64
+	A2APrincipalByteLimit    int64
 }
 
 func Open(source string) (*Runtime, error) {
+	return OpenWithOptions(source, RuntimeOptions{})
+}
+
+func OpenWithOptions(source string, options RuntimeOptions) (*Runtime, error) {
+	limits, err := normalizedA2APrincipalLimits(options)
+	if err != nil {
+		return nil, err
+	}
 	store, err := OpenStore(source)
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{store: store, signals: newRuntimeSignals()}, nil
+	return &Runtime{store: store, signals: newRuntimeSignals(), a2aPrincipalLimits: limits}, nil
+}
+
+func normalizedA2APrincipalLimits(options RuntimeOptions) (A2APrincipalLimits, error) {
+	messageLimit := options.A2APrincipalMessageLimit
+	if messageLimit == 0 {
+		messageLimit = DefaultA2APrincipalMessageLimit
+	}
+	if messageLimit < 1 || messageLimit >= messageBacklogCap {
+		return A2APrincipalLimits{}, Errorf(CodeInvalidArgument, "A2A principal message limit must be between 1 and 9999")
+	}
+	byteLimit := options.A2APrincipalByteLimit
+	if byteLimit == 0 {
+		byteLimit = DefaultA2APrincipalByteLimit
+	}
+	maxBytes := int64(messageBacklogCap-1) * 65536
+	if byteLimit < 1 || byteLimit > maxBytes {
+		return A2APrincipalLimits{}, Errorf(CodeInvalidArgument, "A2A principal byte limit must be between 1 and 655294464")
+	}
+	return A2APrincipalLimits{MessageLimit: messageLimit, ByteLimit: byteLimit}, nil
 }
 
 func (r *Runtime) Close() error { return r.store.Close() }
