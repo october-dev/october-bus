@@ -12,17 +12,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/october-dev/october-bus/a2abridge"
-	"github.com/october-dev/october-bus/bus"
 )
 
 func TestAgentCardMapsPublicAgentFields(t *testing.T) {
-	card, err := a2abridge.NewAgentCard(bus.Agent{
-		ID:          "reviewer",
+	card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{
 		DisplayName: "Reviewer",
-		Capabilities: []bus.AgentCapability{
+		Capabilities: []a2abridge.Capability{
 			{Name: "code_review", Description: "Reviews code changes."},
 		},
-		ExecutionID: "execution-secret",
 	}, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
@@ -46,15 +43,15 @@ func TestAgentCardMapsPublicAgentFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"execution-secret", "scopeToken", "agentToken"} {
-		if strings.Contains(string(encoded), secret) {
-			t.Fatalf("card contains private value %q", secret)
+	for _, privateField := range []string{"executionId", "agentId", "scopeId", "scopeToken", "agentToken"} {
+		if strings.Contains(string(encoded), privateField) {
+			t.Fatalf("card contains private field %q", privateField)
 		}
 	}
 }
 
 func TestAgentCardRequiresSecureRemoteURL(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	for _, value := range []string{
 		"http://example.com/a2a",
 		"https://user:secret@example.com/a2a",
@@ -78,7 +75,7 @@ func TestAgentCardRequiresSecureRemoteURL(t *testing.T) {
 }
 
 func TestAgentCardProviderFields(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "https://agents.example.com/reviewer",
 		ProviderOrganization: "Example Labs",
@@ -99,7 +96,7 @@ func TestAgentCardProviderFields(t *testing.T) {
 }
 
 func TestAgentCardRejectsProviderOrganizationWithoutURL(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "https://agents.example.com/reviewer",
 		ProviderOrganization: "Example Labs",
@@ -110,7 +107,7 @@ func TestAgentCardRejectsProviderOrganizationWithoutURL(t *testing.T) {
 }
 
 func TestAgentCardRejectsProviderURLWithoutOrganization(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 		ProviderURL:  "https://example.com",
@@ -121,7 +118,7 @@ func TestAgentCardRejectsProviderURLWithoutOrganization(t *testing.T) {
 }
 
 func TestAgentCardRejectsBlankProviderOrganization(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "https://agents.example.com/reviewer",
 		ProviderOrganization: "   ",
@@ -133,7 +130,7 @@ func TestAgentCardRejectsBlankProviderOrganization(t *testing.T) {
 }
 
 func TestAgentCardProviderOmittedWhenUnset(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 	})
@@ -146,7 +143,7 @@ func TestAgentCardProviderOmittedWhenUnset(t *testing.T) {
 }
 
 func TestAgentCardDocumentationAndIconURLs(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:     "https://agents.example.com/reviewer",
 		DocumentationURL: "https://docs.example.com/reviewer",
@@ -164,7 +161,7 @@ func TestAgentCardDocumentationAndIconURLs(t *testing.T) {
 }
 
 func TestAgentCardDocumentationAndIconOmittedWhenUnset(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 	})
@@ -193,7 +190,7 @@ func TestAgentCardDocumentationAndIconOmittedWhenUnset(t *testing.T) {
 // every field that uses it. Each case must return a clear, field-prefixed
 // error and must not produce a card.
 func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	cases := []struct {
 		name    string
 		options a2abridge.CardOptions
@@ -268,7 +265,7 @@ func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
 // allowed because it's a link clients follow rather than an endpoint they
 // POST to. The interface URL still requires HTTPS for non-loopback hosts.
 func TestAgentCardPublicURLsAllowPlainHTTP(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "http://127.0.0.1:8080/a2a",
 		ProviderOrganization: "Example Labs",
@@ -291,7 +288,7 @@ func TestAgentCardPublicURLsAllowPlainHTTP(t *testing.T) {
 }
 
 func TestAgentCardFullConfigurationRoundTrip(t *testing.T) {
-	agent := bus.Agent{DisplayName: "Reviewer"}
+	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL:         "https://agents.example.com/reviewer",
 		ProviderOrganization: "Example Labs",
@@ -329,7 +326,7 @@ func TestAgentCardFullConfigurationRoundTrip(t *testing.T) {
 }
 
 func TestAgentCardHandlerWorksWithOfficialResolver(t *testing.T) {
-	card, err := a2abridge.NewAgentCard(bus.Agent{DisplayName: "Reviewer"}, a2abridge.CardOptions{
+	card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
 	})
@@ -379,7 +376,7 @@ func TestAgentCardHandlerWorksWithOfficialResolver(t *testing.T) {
 }
 
 func TestAgentCardHandlerRejectsUnsupportedMethods(t *testing.T) {
-	card, err := a2abridge.NewAgentCard(bus.Agent{DisplayName: "Reviewer"}, a2abridge.CardOptions{
+	card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 	})
 	if err != nil {
@@ -400,7 +397,7 @@ func TestAgentCardHandlerRejectsUnsupportedMethods(t *testing.T) {
 // below. Each test calls it fresh so failures cannot bleed between cases.
 func makeTestCard(t *testing.T) *a2a.AgentCard {
 	t.Helper()
-	card, err := a2abridge.NewAgentCard(bus.Agent{DisplayName: "Reviewer"}, a2abridge.CardOptions{
+	card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
 	})

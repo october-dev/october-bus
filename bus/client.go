@@ -194,6 +194,22 @@ func (c Client) Events(ctx context.Context, after int64, limit int, wait time.Du
 	return request[EventBatch](ctx, c, http.MethodGet, "/v1/events?"+query.Encode(), nil)
 }
 
+func (c Client) CreateAgentCardPublication(ctx context.Context, input PublishAgentCardInput) (AgentCardPublication, error) {
+	return request[AgentCardPublication](ctx, c, http.MethodPost, "/v1/a2a/publications", input)
+}
+
+func (c Client) ListAgentCardPublications(ctx context.Context) ([]AgentCardPublication, error) {
+	return request[[]AgentCardPublication](ctx, c, http.MethodGet, "/v1/a2a/publications", nil)
+}
+
+func (c Client) SetAgentCardPublicationEnabled(ctx context.Context, publicationID string, enabled bool) (AgentCardPublication, error) {
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
+	return request[AgentCardPublication](ctx, c, http.MethodPost, "/v1/a2a/publications/"+url.PathEscape(publicationID)+"/"+action, map[string]any{})
+}
+
 func (c Client) WatchEvents(ctx context.Context, after int64, limit int) iter.Seq2[EventBatch, error] {
 	return func(yield func(EventBatch, error) bool) {
 		for ctx.Err() == nil {

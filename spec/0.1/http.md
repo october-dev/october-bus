@@ -64,6 +64,11 @@ Failures use:
 | `GET` | `/v1/scope/storage` | Scope | Counts, estimated bytes, and oldest timestamps |
 | `POST` | `/v1/scope/storage/prune` | Scope | Dry-run or executed retention result |
 | `GET` | `/v1/events` | Scope | Resumable scope event batch |
+| `POST` | `/v1/a2a/publications` | Scope | New Agent Card publication |
+| `GET` | `/v1/a2a/publications` | Scope | Agent Card publications in the scope |
+| `POST` | `/v1/a2a/publications/{publicationId}/enable` | Scope | Enabled publication |
+| `POST` | `/v1/a2a/publications/{publicationId}/disable` | Scope | Disabled publication |
+| `GET` | `/a2a/agents/{publicationId}/.well-known/agent-card.json` | None | Enabled A2A Agent Card |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
@@ -75,6 +80,8 @@ Failures use:
 `GET /v1/events?after=0&limit=50&waitMs=25000` returns events after the supplied scope revision. The limit is 1 through 100 and the bounded wait is 0 through 25000 milliseconds. The default cursor is 0, the default limit is 50, and the default wait returns immediately. Event envelopes contain identifiers and state metadata, not message bodies, task text, progress text, escalation questions, answers, or credentials.
 
 Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that can still produce a complete continuation. A batch with `resyncRequired: true` means retention removed events needed by the supplied cursor. The client must rebuild its projection from the resource APIs and resume from the returned `nextRevision`.
+
+Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

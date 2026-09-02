@@ -2,6 +2,7 @@ import { BusError } from './errors.js'
 import type { BusErrorCode } from './errors.js'
 import type {
   Agent,
+  AgentCardPublication,
   AgentLifecycle,
   AddTaskInput,
   AddTaskProgressInput,
@@ -17,6 +18,7 @@ import type {
   InboxReservation,
   PruneScopeInput,
   PruneScopeResult,
+  PublishAgentCardInput,
   RegisterAgentInput,
   RegisterAgentResult,
   SendMessageInput,
@@ -220,6 +222,30 @@ export class OctoberBusScopeClient {
       after = batch.nextRevision
       if (batch.events.length > 0) yield batch
     }
+  }
+
+  createAgentCardPublication(input: PublishAgentCardInput, options?: OperationOptions): Promise<AgentCardPublication> {
+    return request(this.address, this.scopeToken, 'POST', '/v1/a2a/publications', input, options)
+  }
+
+  listAgentCardPublications(options?: OperationOptions): Promise<AgentCardPublication[]> {
+    return request(this.address, this.scopeToken, 'GET', '/v1/a2a/publications', undefined, options)
+  }
+
+  setAgentCardPublicationEnabled(
+    publicationId: string,
+    enabled: boolean,
+    options?: OperationOptions
+  ): Promise<AgentCardPublication> {
+    const action = enabled ? 'enable' : 'disable'
+    return request(
+      this.address,
+      this.scopeToken,
+      'POST',
+      `/v1/a2a/publications/${encodeURIComponent(publicationId)}/${action}`,
+      {},
+      options
+    )
   }
 
   listEscalations(options?: OperationOptions): Promise<HumanEscalation[]> {

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 5
+	schemaVersion                = 6
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -202,7 +202,18 @@ CREATE TABLE events (
 );
 CREATE INDEX events_scope_revision ON events(scope_id, revision);
 CREATE INDEX events_scope_created ON events(scope_id, created_at);
-PRAGMA user_version=5;
+CREATE TABLE a2a_publications (
+	publication_id TEXT PRIMARY KEY,
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	agent_id TEXT NOT NULL,
+	enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	UNIQUE(scope_id, agent_id),
+	FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
+);
+CREATE INDEX a2a_publications_scope_created ON a2a_publications(scope_id, created_at);
+PRAGMA user_version=6;
 COMMIT;`)
 	return err
 }
@@ -336,6 +347,9 @@ ON CONFLICT(scope_id,agent_id) DO UPDATE SET
  lease_expires_at=excluded.lease_expires_at, registered_at=excluded.registered_at, updated_at=excluded.updated_at`,
 		scopeID, agentID, input.DisplayName, capabilities, executionID, tokenDigest(agentToken), leaseExpiresAt, now, now)
 	if err != nil {
+		return RegisterAgentResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE a2a_publications SET updated_at=? WHERE scope_id=? AND agent_id=?`, now, scopeID, agentID); err != nil {
 		return RegisterAgentResult{}, err
 	}
 	if err := appendEvent(ctx, tx, scopeID, "agent.registered", agentID, eventAttributes(

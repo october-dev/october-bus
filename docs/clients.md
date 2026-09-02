@@ -7,7 +7,7 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
-- scope token for agent registration, peer links, project task management, event streams, storage controls, and human escalation resolution;
+- scope token for agent registration, peer links, Agent Card publications, project task management, event streams, storage controls, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
@@ -35,6 +35,7 @@ messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
 ownerTasks, err := owner.ListTasks(ctx, true)
 storage, err := owner.StorageSummary(ctx)
 events, err := owner.Events(ctx, lastRevision, 50, 25*time.Second)
+publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
 
 for batch, err := range owner.WatchEvents(ctx, lastRevision, 50) {
     if err != nil {
@@ -82,6 +83,7 @@ const peers = await session.client.listPeers({ timeoutMs: 10_000 })
 const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
 const readyTasks = await new OctoberBusScopeClient(address, scopeToken).listTasks({ ready: true })
 const owner = new OctoberBusScopeClient(address, scopeToken)
+const publication = await owner.createAgentCardPublication({ agentId: 'reviewer' })
 
 for await (const batch of owner.watchEvents({ after: lastRevision })) {
   if (batch.resyncRequired) break

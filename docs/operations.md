@@ -92,6 +92,8 @@ Pass `--yes` to remove the reported records in one transaction. Only terminal me
 
 Pruning scope events can make an old event cursor incomplete. Event clients receive `resyncRequired` and must rebuild their projection from the resource APIs before continuing.
 
+Agent Card publications are configuration records and are not removed by retention. Disable a publication to stop serving its public card.
+
 Choose a cutoff older than the longest client retry window you support. Removing a message also removes its idempotency-key binding.
 
 ## Default paths

@@ -18,10 +18,11 @@ import (
 const maxBodyBytes = 1024 * 1024
 
 type ServerOptions struct {
-	Host       string
-	Port       int
-	AdminToken string
-	StartedAt  string
+	Host          string
+	Port          int
+	AdminToken    string
+	StartedAt     string
+	PublicBaseURL string
 }
 
 type Server struct {

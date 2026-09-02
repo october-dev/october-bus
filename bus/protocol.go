@@ -143,6 +143,21 @@ type EventBatch struct {
 	ResyncRequired  bool       `json:"resyncRequired"`
 }
 
+type AgentCardPublication struct {
+	ID           string `json:"id"`
+	ScopeID      string `json:"scopeId"`
+	AgentID      string `json:"agentId"`
+	Enabled      bool   `json:"enabled"`
+	CardURL      string `json:"cardUrl"`
+	InterfaceURL string `json:"interfaceUrl"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
+}
+
+type PublishAgentCardInput struct {
+	AgentID string `json:"agentId"`
+}
+
 type StorageRecordSummary struct {
 	RecordType     string `json:"recordType"`
 	State          string `json:"state"`

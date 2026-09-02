@@ -2,11 +2,13 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/october-dev/october-bus/bus"
 )
@@ -143,6 +145,52 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	}
 	planner := bus.Client{Address: options.Address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: options.Address, Token: reviewerRegistration.AgentToken}
+
+	if err := record.check("owner-controlled-agent-card-publication", func() error {
+		publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
+		if err != nil || !publication.Enabled || publication.ID == "" {
+			return fmt.Errorf("unexpected publication: %#v, %v", publication, err)
+		}
+		listed, err := owner.ListAgentCardPublications(ctx)
+		if err != nil || len(listed) != 1 || listed[0].ID != publication.ID {
+			return fmt.Errorf("unexpected publications: %#v, %v", listed, err)
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, publication.CardURL, nil)
+		if err != nil {
+			return err
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return err
+		}
+		var card a2a.AgentCard
+		decodeErr := json.NewDecoder(response.Body).Decode(&card)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || decodeErr != nil || card.Name != "Reviewer" || len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0].URL != publication.InterfaceURL {
+			return fmt.Errorf("unexpected published card: status=%d card=%#v error=%v", response.StatusCode, card, decodeErr)
+		}
+		disabled, err := owner.SetAgentCardPublicationEnabled(ctx, publication.ID, false)
+		if err != nil || disabled.Enabled || disabled.CardURL != publication.CardURL {
+			return fmt.Errorf("unexpected disabled publication: %#v, %v", disabled, err)
+		}
+		request, _ = http.NewRequestWithContext(ctx, http.MethodGet, publication.CardURL, nil)
+		response, err = http.DefaultClient.Do(request)
+		if err != nil {
+			return err
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("disabled card returned HTTP %d", response.StatusCode)
+		}
+		enabled, err := owner.SetAgentCardPublicationEnabled(ctx, publication.ID, true)
+		if err != nil || !enabled.Enabled || enabled.CardURL != publication.CardURL {
+			return fmt.Errorf("unexpected enabled publication: %#v, %v", enabled, err)
+		}
+		_, err = planner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "planner"})
+		return requireCode(err, bus.CodeUnauthenticated)
+	}); err != nil {
+		return result, err
+	}
 
 	if err := record.check("presence-and-discovery", func() error {
 		if _, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000}); err != nil {

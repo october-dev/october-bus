@@ -123,6 +123,21 @@ export interface EventBatch {
   resyncRequired: boolean
 }
 
+export interface AgentCardPublication {
+  id: string
+  scopeId: ScopeId
+  agentId: AgentId
+  enabled: boolean
+  cardUrl: string
+  interfaceUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PublishAgentCardInput {
+  agentId: AgentId
+}
+
 export interface HumanEscalation {
   id: string
   scopeId: ScopeId
@@ -179,7 +194,7 @@ export interface AddTaskProgressInput {
 }
 
 export interface StorageRecordSummary {
-  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event'
+  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event' | 'a2aPublication'
   state: string
   count: number
   estimatedBytes: number

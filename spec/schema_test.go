@@ -149,6 +149,16 @@ func TestProtocolSchemas(t *testing.T) {
 		}},
 		"nextRevision": float64(1), "currentRevision": float64(1), "minimumCursor": float64(0), "resyncRequired": false,
 	})
+	publication := resolvedSchema(t, path, "agentCardPublication")
+	requireValid(t, publication, map[string]any{
+		"id": "pub_123", "scopeId": "scope", "agentId": "reviewer", "enabled": true,
+		"cardUrl":      "https://bus.example/a2a/agents/pub_123/.well-known/agent-card.json",
+		"interfaceUrl": "https://bus.example/a2a/agents/pub_123",
+		"createdAt":    "2026-09-02T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+	})
+	publishInput := resolvedSchema(t, path, "publishAgentCardInput")
+	requireValid(t, publishInput, map[string]any{"agentId": "reviewer"})
+	requireInvalid(t, publishInput, map[string]any{"agentId": "reviewer", "scopeId": "scope"})
 
 	prune := resolvedSchema(t, path, "pruneScopeInput")
 	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z"})
@@ -255,6 +265,11 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "registerAgentResult"), jsonValue(t, reviewerRegistration))
+	publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireValid(t, resolvedSchema(t, path, "agentCardPublication"), jsonValue(t, publication))
 	planner := bus.Client{Address: address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: address, Token: reviewerRegistration.AgentToken}
 	agent, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true})

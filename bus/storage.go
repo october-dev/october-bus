@@ -38,6 +38,8 @@ MIN(CASE status WHEN 'pending' THEN created_at ELSE resolved_at END)
 FROM escalations WHERE scope_id=? GROUP BY status ORDER BY status`},
 		{"event", `SELECT event_type,COUNT(*),COALESCE(SUM(length(CAST(event_type AS BLOB))+length(CAST(subject_id AS BLOB))+length(CAST(attributes_json AS BLOB))),0),MIN(created_at)
 FROM events WHERE scope_id=? GROUP BY event_type ORDER BY event_type`},
+		{"a2aPublication", `SELECT CASE enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END,COUNT(*),0,MIN(created_at)
+FROM a2a_publications WHERE scope_id=? GROUP BY enabled ORDER BY enabled DESC`},
 	}
 	for _, query := range queries {
 		rows, err := tx.QueryContext(ctx, query.statement, scopeID)

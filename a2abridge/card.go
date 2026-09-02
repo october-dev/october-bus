@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/october-dev/october-bus/bus"
 )
 
 const bearerSchemeName a2a.SecuritySchemeName = "bearer"
@@ -36,7 +35,17 @@ type CardOptions struct {
 	Description string
 }
 
-func NewAgentCard(agent bus.Agent, options CardOptions) (*a2a.AgentCard, error) {
+type Capability struct {
+	Name        string
+	Description string
+}
+
+type AgentProfile struct {
+	DisplayName  string
+	Capabilities []Capability
+}
+
+func NewAgentCard(agent AgentProfile, options CardOptions) (*a2a.AgentCard, error) {
 	if strings.TrimSpace(agent.DisplayName) == "" {
 		return nil, errors.New("agent display name is required")
 	}
@@ -64,7 +73,7 @@ func NewAgentCard(agent bus.Agent, options CardOptions) (*a2a.AgentCard, error) 
 		}
 	}
 	if options.Version == "" {
-		options.Version = bus.Version
+		options.Version = "dev"
 	}
 	if options.Description == "" {
 		options.Description = "AI agent connected through October Bus."
@@ -98,7 +107,7 @@ func NewAgentCard(agent bus.Agent, options CardOptions) (*a2a.AgentCard, error) 
 		SecuritySchemes: a2a.NamedSecuritySchemes{
 			bearerSchemeName: a2a.HTTPAuthSecurityScheme{
 				Scheme:      "Bearer",
-				Description: "October Bus agent credential.",
+				Description: "October Bus A2A credential.",
 			},
 		},
 		SecurityRequirements: a2a.SecurityRequirementsOptions{

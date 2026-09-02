@@ -22,12 +22,12 @@ SDK versions and A2A protocol versions are independent. The bridge records both.
 - A2A types are translated at transport boundaries.
 - An Agent Card describes an agent. It does not grant access to the agent or its scope.
 - Public cards contain no execution IDs, credentials, prompts, local paths, or private context.
-- A deployment chooses which agent cards to publish. The shared daemon does not enumerate agents publicly.
+- A scope owner chooses which agent cards to publish. The shared daemon does not enumerate agents publicly.
 - A deployment gives each published agent a stable interface URL. Execution IDs are never public identity.
 - Agent interfaces use bearer authentication. Loopback HTTP is allowed for local development. Remote interfaces require HTTPS.
 - October Bus shared work items are a coordination pool. They are not A2A Tasks. A2A Tasks represent one delegated interaction and its result stream.
 
-The initial package generates and serves read-only Agent Cards. It does not implement A2A message or task operations yet.
+The reference daemon stores owner-controlled publications and serves enabled Agent Cards at opaque URLs. It does not implement A2A message or task operations yet.
 
 ### Handler caching and conditional requests
 
@@ -43,6 +43,8 @@ weak tags, tag lists, and wildcard cache validation. `If-None-Match` takes
 precedence when both headers are present. The `ETag`, `Cache-Control`, and
 `Last-Modified` headers are computed once and remain consistent for every
 request served by a handler instance.
+
+Owner-controlled publications use a zero-second cache lifetime so clients revalidate disabled cards immediately.
 
 ## Extensions
 

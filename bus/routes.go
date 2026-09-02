@@ -133,6 +133,21 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/events",
 		routeMethod{http.MethodGet, s.events},
 	)
+	registerRoute(router, "/v1/a2a/publications",
+		routeMethod{http.MethodGet, s.listAgentCardPublications},
+		routeMethod{http.MethodPost, s.createAgentCardPublication},
+	)
+	registerRoute(router, "/v1/a2a/publications/{publicationId}/enable",
+		routeMethod{http.MethodPost, s.enableAgentCardPublication},
+	)
+	registerRoute(router, "/v1/a2a/publications/{publicationId}/disable",
+		routeMethod{http.MethodPost, s.disableAgentCardPublication},
+	)
+	registerRoute(router, "/a2a/agents/{publicationId}/.well-known/agent-card.json",
+		routeMethod{http.MethodGet, s.servePublishedAgentCard},
+		routeMethod{http.MethodHead, s.servePublishedAgentCard},
+		routeMethod{http.MethodOptions, s.servePublishedAgentCard},
+	)
 	return router
 }
 

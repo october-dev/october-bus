@@ -355,12 +355,35 @@
         "resyncRequired": { "type": "boolean" }
       }
     },
+    "publishAgentCardInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId"],
+      "properties": {
+        "agentId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "agentCardPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scopeId", "agentId", "enabled", "cardUrl", "interfaceUrl", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "agentId": { "$ref": "#/$defs/identifier" },
+        "enabled": { "type": "boolean" },
+        "cardUrl": { "type": "string", "format": "uri" },
+        "interfaceUrl": { "type": "string", "format": "uri" },
+        "createdAt": { "$ref": "#/$defs/instant" },
+        "updatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
     "storageRecordSummary": {
       "type": "object",
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event", "a2aPublication"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },

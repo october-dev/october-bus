@@ -147,12 +147,21 @@ Protocol 0.1 defines these event types:
 - `message.accepted`, `message.replied`, `message.reserved`, `message.released`, `message.delivered`, `message.acknowledged`, and `message.expired`
 - `task.created`, `task.claimed`, `task.released`, `task.completed`, and `task.progress_added`
 - `escalation.created` and `escalation.resolved`
+- `a2a.publication_created`, `a2a.publication_enabled`, and `a2a.publication_disabled`
 
 Each listed transition event MUST be committed atomically with the transition it describes. Retrying an idempotent operation that made no new state change MUST NOT append another event. A heartbeat that only renews a lease does not append a lifecycle event.
 
 Implementations MAY retain a bounded event history. `minimumCursor` identifies the oldest cursor that can still produce a complete continuation. When retention removes revisions required by a cursor, the event API MUST return an explicit resync result instead of silently skipping history. The client then rebuilds from the resource APIs and resumes at the current revision.
 
 The reference runtime allows at most 128 concurrent event waits per scope credential and returns `BACKPRESSURE` above that limit. Waiting clients do not hold mutation locks or private in-memory event queues.
+
+## A2A Agent Card publications
+
+No registered agent is publicly discoverable by default. Scope authority MAY create one durable Agent Card publication for a registered agent. The publication receives an opaque public ID that does not contain its scope or agent ID.
+
+An enabled publication exposes an A2A Agent Card at its returned card URL. The card uses the agent's display name and declared capabilities, but MUST NOT expose scope IDs, agent IDs, execution IDs, credentials, prompts, local paths, or private context. Public callers cannot list publications. Unknown and disabled publication IDs are indistinguishable.
+
+Scope authority MAY disable and re-enable a publication without changing its ID or URLs. Card and interface URLs MUST be derived from trusted runtime configuration instead of request headers. The reference runtime permits loopback HTTP and requires HTTPS for non-loopback publication URLs.
 
 ## Human escalation
 
@@ -165,7 +174,7 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
+| Scope token | Register and list agents, create peer links, manage Agent Card publications, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.
