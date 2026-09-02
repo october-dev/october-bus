@@ -2,6 +2,8 @@
 
 October Bus runs as one local daemon. The reference profile binds to `127.0.0.1` and stores accepted work in SQLite.
 
+For remote and shared deployments, see the [cross-machine scope architecture](architecture/cross-machine-scopes.md). A shared Bus service owns logical coordination state while each host retains authority over the executions it runs.
+
 ## Start and stop
 
 ```bash
