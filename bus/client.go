@@ -100,6 +100,14 @@ func (c Client) Shutdown(ctx context.Context) error {
 	return err
 }
 
+func (c Client) ExportScope(ctx context.Context, scopeID string) (ScopeArchive, error) {
+	return request[ScopeArchive](ctx, c, http.MethodGet, "/v1/admin/scopes/"+url.PathEscape(scopeID)+"/export", nil)
+}
+
+func (c Client) ImportScope(ctx context.Context, archive ScopeArchive) (ImportScopeResult, error) {
+	return request[ImportScopeResult](ctx, c, http.MethodPost, "/v1/admin/scopes/import", archive)
+}
+
 func (c Client) RegisterAgent(ctx context.Context, input RegisterAgentInput) (RegisterAgentResult, error) {
 	return request[RegisterAgentResult](ctx, c, http.MethodPost, "/v1/agents", input)
 }

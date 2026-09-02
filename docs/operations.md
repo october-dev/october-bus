@@ -113,6 +113,26 @@ The Bus never accepts output credentials in query strings. A server-to-server re
 
 Choose a cutoff older than the longest client retry window you support. Removing a message also removes its idempotency-key binding.
 
+## Backup, restore, and migration
+
+Stop or disconnect every agent in a scope before exporting it:
+
+```bash
+october-bus scope export --id my-project --output my-project.bus.json
+```
+
+Archive files contain message bodies, context, task details, escalation answers, and output values. They do not contain reusable Bus credentials, but they can still hold sensitive project data. The CLI creates a new archive with user-only permissions and refuses to overwrite an existing file.
+
+Import the archive into another compatible runtime:
+
+```bash
+october-bus scope import --input my-project.bus.json
+```
+
+The command prints the new scope token only on the first successful import. Store it securely. Imported agents are offline, active task claims are open, and Agent Card publications are disabled. Register agents again and review publications before enabling them.
+
+For a remote runtime, set `OCTOBER_BUS_ADMIN_TOKEN` and pass `--address`. Importing the exact same archive again is safe and does not duplicate state.
+
 ## Default paths
 
 | Platform | Data directory | Runtime directory |

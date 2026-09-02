@@ -211,6 +211,32 @@ func TestProtocolSchemas(t *testing.T) {
 	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z", "execute": true})
 }
 
+func TestPortableScopeArchiveSchema(t *testing.T) {
+	schema := resolvedSchema(t, filepath.Join("0.1", "schemas", "scope-archive.schema.json"), "")
+	archive := bus.ScopeArchive{
+		Format: bus.ScopeArchiveFormat, Version: bus.ScopeArchiveVersion,
+		ExportedAt: "2026-09-02T00:00:00Z",
+		Scope:      bus.ArchivedScope{ID: "project", CreatedAt: "2026-09-01T00:00:00Z"},
+		Agents: []bus.ArchivedAgent{{
+			ID: "reviewer", DisplayName: "Reviewer", Capabilities: []bus.AgentCapability{{Name: "review"}},
+			RegisteredAt: "2026-09-01T00:00:00Z", UpdatedAt: "2026-09-01T00:00:01Z",
+		}},
+		Links:                 []bus.ArchivedPeerLink{},
+		Messages:              []bus.ArchivedMessage{},
+		Tasks:                 []bus.ArchivedTask{},
+		TaskProgress:          []bus.ArchivedTaskProgress{},
+		Escalations:           []bus.ArchivedEscalation{},
+		AgentCardPublications: []bus.ArchivedAgentCard{},
+		OutputStreams:         []bus.ArchivedOutputStream{},
+		OutputValues:          []bus.ArchivedOutputValue{},
+	}
+	value := jsonValue(t, archive)
+	requireValid(t, schema, value)
+	object := value.(map[string]any)
+	object["scopeToken"] = "must-not-be-portable"
+	requireInvalid(t, schema, object)
+}
+
 func TestAdapterManifestsMatchSchema(t *testing.T) {
 	schema := resolvedSchema(t, filepath.Join("0.1", "schemas", "adapter-manifest.schema.json"), "")
 	paths, err := filepath.Glob(filepath.Join("..", "adapters", "*", "adapter.json"))

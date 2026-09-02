@@ -6,7 +6,7 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 
 Use the narrowest credential for each operation:
 
-- admin token for scope creation and daemon shutdown;
+- admin token for scope creation, portable import and export, and daemon shutdown;
 - scope token for agent registration, peer links, Agent Card publications and remote principals, project task management, event streams, storage controls, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation;
 - scoped A2A credential for one published A2A interface only;

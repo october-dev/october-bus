@@ -244,7 +244,7 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 		eventFloor = currentFloor
 	}
 	var eventCount int64
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE scope_id=? AND revision<=?`, scopeID, eventFloor).Scan(&eventCount); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE scope_id=? AND revision<=? AND event_type!='scope.imported'`, scopeID, eventFloor).Scan(&eventCount); err != nil {
 		return PruneScopeResult{}, err
 	}
 	var taskProgressCount int64
@@ -289,7 +289,7 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 			}
 		}
 		if eventCount > 0 {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE scope_id=? AND revision<=?`, scopeID, eventFloor); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE scope_id=? AND revision<=? AND event_type!='scope.imported'`, scopeID, eventFloor); err != nil {
 				return PruneScopeResult{}, err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE scopes SET event_floor_revision=MAX(event_floor_revision,?) WHERE scope_id=?`, eventFloor, scopeID); err != nil {

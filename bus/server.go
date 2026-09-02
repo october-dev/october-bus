@@ -15,7 +15,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxBodyBytes = 1024 * 1024
+const (
+	maxBodyBytes        = 1024 * 1024
+	maxArchiveBodyBytes = 64 * 1024 * 1024
+)
 
 type ServerOptions struct {
 	Host           string
@@ -154,13 +157,21 @@ func (s *Server) requireAdmin(request *http.Request) error {
 }
 
 func decodeBody(response http.ResponseWriter, request *http.Request, target any) error {
-	request.Body = http.MaxBytesReader(response, request.Body, maxBodyBytes)
+	return decodeBoundedBody(response, request, target, maxBodyBytes, "1 MiB")
+}
+
+func decodeArchiveBody(response http.ResponseWriter, request *http.Request, target any) error {
+	return decodeBoundedBody(response, request, target, maxArchiveBodyBytes, "64 MiB")
+}
+
+func decodeBoundedBody(response http.ResponseWriter, request *http.Request, target any, limit int64, limitName string) error {
+	request.Body = http.MaxBytesReader(response, request.Body, limit)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			return Errorf(CodeInvalidArgument, "Request body exceeds 1 MiB")
+			return Errorf(CodeInvalidArgument, "Request body exceeds "+limitName)
 		}
 		if errors.Is(err, io.EOF) {
 			return nil

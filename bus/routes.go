@@ -61,6 +61,12 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/admin/shutdown",
 		routeMethod{http.MethodPost, s.shutdownServer},
 	)
+	registerRoute(router, "/v1/admin/scopes/import",
+		routeMethod{http.MethodPost, s.importScope},
+	)
+	registerRoute(router, "/v1/admin/scopes/{scopeId}/export",
+		routeMethod{http.MethodGet, s.exportScope},
+	)
 	registerRoute(router, "/v1/scopes",
 		routeMethod{http.MethodPost, s.createScope},
 	)
@@ -276,6 +282,38 @@ func (s *Server) createScope(response http.ResponseWriter, request *http.Request
 		return err
 	}
 	writeResult(response, http.StatusCreated, result)
+	return nil
+}
+
+func (s *Server) exportScope(response http.ResponseWriter, request *http.Request) error {
+	if err := s.requireAdmin(request); err != nil {
+		return err
+	}
+	result, err := s.runtime.ExportScope(request.Context(), request.PathValue("scopeId"))
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) importScope(response http.ResponseWriter, request *http.Request) error {
+	if err := s.requireAdmin(request); err != nil {
+		return err
+	}
+	var archive ScopeArchive
+	if err := decodeArchiveBody(response, request, &archive); err != nil {
+		return err
+	}
+	result, err := s.runtime.ImportScope(request.Context(), archive)
+	if err != nil {
+		return err
+	}
+	status := http.StatusOK
+	if result.Imported {
+		status = http.StatusCreated
+	}
+	writeResult(response, status, result)
 	return nil
 }
 

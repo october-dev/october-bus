@@ -6,6 +6,8 @@ The Bus daemon is distributed separately as a native executable.
 
 The client is in active development and has not reached a stable release. Before 1.0, its API, schemas, and protocol behavior may change between releases.
 
+`OctoberBusAdminClient` can export and import versioned portable scope archives. Archives preserve durable collaboration state but exclude credentials, leases, and active execution authority.
+
 ## Install
 
 Install the current prerelease from the `next` tag:

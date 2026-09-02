@@ -41,6 +41,8 @@ The runtime and data directories request owner-only permissions where the operat
 
 Do not place scope or admin credentials in model context. Give a harness only its execution-bound agent token when possible.
 
+Portable archives exclude reusable credentials and execution authority. They still contain collaboration content such as messages, context, tasks, escalation answers, and output values. Store and transfer them as sensitive project data.
+
 ## Untrusted content
 
 Messages, task text, display names, file paths, and URLs are untrusted input. Adapters must treat them as data, not instructions that bypass the harness permission system. A file or URL reference does not prove that the resource is safe or accessible.

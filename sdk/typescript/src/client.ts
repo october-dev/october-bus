@@ -32,9 +32,11 @@ import type {
   PublishOutputInput,
   RegisterAgentInput,
   RegisterAgentResult,
+  ScopeArchive,
   SendMessageInput,
   StorageSummary,
-  TaskProgress
+  TaskProgress,
+  ImportScopeResult
 } from './protocol.js'
 
 interface Success<T> {
@@ -153,6 +155,21 @@ export class OctoberBusAdminClient {
 
   createScope(input: CreateScopeInput = {}, options?: OperationOptions): Promise<CreateScopeResult> {
     return request(this.address, this.adminToken, 'POST', '/v1/scopes', input, options)
+  }
+
+  exportScope(scopeId: string, options?: OperationOptions): Promise<ScopeArchive> {
+    return request(
+      this.address,
+      this.adminToken,
+      'GET',
+      `/v1/admin/scopes/${encodeURIComponent(scopeId)}/export`,
+      undefined,
+      options
+    )
+  }
+
+  importScope(archive: ScopeArchive, options?: OperationOptions): Promise<ImportScopeResult> {
+    return request(this.address, this.adminToken, 'POST', '/v1/admin/scopes/import', archive, options)
   }
 
   async shutdown(options?: OperationOptions): Promise<void> {

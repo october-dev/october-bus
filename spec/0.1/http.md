@@ -7,7 +7,7 @@ The reference transport is JSON over HTTP. The local runtime listens on loopback
 - Base URL example: `http://127.0.0.1:4765`
 - Authenticated requests use `Authorization: Bearer <token>`.
 - Request bodies contain one JSON value and reject unknown fields.
-- Request bodies are limited to 1 MiB.
+- Request bodies are limited to 1 MiB. Scope archive imports are limited to 64 MiB.
 - Responses set `Content-Type: application/json` and `Cache-Control: no-store`.
 - Identifiers in paths are URL-escaped.
 
@@ -38,6 +38,8 @@ Failures use:
 | --- | --- | --- | --- |
 | `GET` | `/health` | None | Runtime health and protocol version |
 | `POST` | `/v1/admin/shutdown` | Admin | Accepted shutdown request |
+| `GET` | `/v1/admin/scopes/{scopeId}/export` | Admin | Portable scope archive |
+| `POST` | `/v1/admin/scopes/import` | Admin | Imported scope and one-time scope token |
 | `POST` | `/v1/scopes` | Admin | New scope ID and scope token |
 | `POST` | `/v1/agents` | Scope | New execution identity, lease, and agent token |
 | `GET` | `/v1/agents` | Scope | Agents in the scope |
@@ -107,6 +109,8 @@ Agent Card publications are absent by default. A scope owner publishes one regis
 `POST /outputs/{streamId}/values` accepts `contentType`, `value`, and an optional URI reference. Agent credentials require an explicit publisher grant. Scoped output credentials require `publish` permission. `GET /outputs/{streamId}/values?after=0&limit=50` returns ordered values after the cursor. The limit is 1 through 100. Clients use `nextSequence` as their next cursor and rebuild from the latest value when `resyncRequired` is true.
 
 Output credentials are bearer credentials and MUST be sent in the `Authorization` header. Credentials in query strings are not accepted. Browser CORS policy is deployment configuration rather than part of the protocol.
+
+Scope export and import use the archive rules in [archives.md](archives.md). Export rejects a scope with an active agent execution. Import validates and applies the full archive in one transaction. A successful retry returns `imported=false` and does not return the original one-time scope token again.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

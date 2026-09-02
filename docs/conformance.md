@@ -34,7 +34,7 @@ october-bus-conformance \
   --format text
 ```
 
-The runner gives the adapter an execution-bound agent credential and keeps registration and heartbeat outside the MCP process. Admin and scope credentials are removed from the adapter environment. The profile checks identity, heartbeat, exact peer discovery, durable messaging, acknowledgements, requests, replies, idempotency, bounded context, shared tasks, human escalation, execution replacement, clean shutdown, and lease-expiry recovery.
+The runner gives the adapter an execution-bound agent credential and keeps registration and heartbeat outside the MCP process. Admin and scope credentials are removed from the adapter environment. The local runtime profile checks portable scope archives, identity, heartbeat, exact peer discovery, durable messaging, acknowledgements, requests, replies, idempotency, bounded context, shared tasks, human escalation, execution replacement, clean shutdown, and lease-expiry recovery.
 
 The lease-expiry check takes about 30 seconds. Increase `--timeout` if the host is slow.
 

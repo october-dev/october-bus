@@ -13,7 +13,8 @@ scope
 ├── authorized peer links
 ├── durable messages and receipts
 ├── shared tasks and dependencies
-└── human escalations
+├── human escalations
+└── portable durable state
 ```
 
 ### Scope
@@ -126,6 +127,10 @@ The claimant MUST keep its execution lease current. When an execution expires or
 
 The reference runtime limits a scope to 5,000 tasks that are not done.
 
+## Portable scope state
+
+Compatible implementations MAY export and import durable scope state using the versioned [portable archive format](archives.md). Archives preserve accepted work and stable resource IDs while excluding credentials, leases, reservations, execution authority, and host evidence.
+
 ## Storage and retention
 
 Accepted work is retained indefinitely by default. Scope authority MAY inspect record counts, estimated payload bytes, and oldest state timestamps without reading record content.
@@ -150,6 +155,7 @@ Protocol 0.1 defines these event types:
 - `a2a.publication_created`, `a2a.publication_enabled`, and `a2a.publication_disabled`
 - `credential.created`, `credential.rotated`, `credential.enabled`, and `credential.disabled`
 - `output.stream_created`, `output.stream_removed`, `output.publisher_added`, `output.publisher_removed`, and `output.published`
+- `scope.imported`
 
 Each listed transition event MUST be committed atomically with the transition it describes. Retrying an idempotent operation that made no new state change MUST NOT append another event. A heartbeat that only renews a lease does not append a lifecycle event.
 
@@ -197,7 +203,7 @@ Only scope authority resolves escalations. Agent authority can create and read e
 
 | Credential | Allowed operations |
 | --- | --- |
-| Admin token | Create a scope and request local daemon shutdown |
+| Admin token | Create, export, and import scopes and request local daemon shutdown |
 | Scope token | Register and list agents, create peer links, manage Agent Card publications and remote principals, manage output streams and readers, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, publish to explicitly allowed output streams, create and read escalations |
 | Scoped A2A credential | Invoke one published A2A agent interface when that operation is supported |

@@ -125,6 +125,32 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	}
 	owner := bus.Client{Address: options.Address, Token: scope.ScopeToken}
 
+	if err := record.check("portable-scope-archive", func() error {
+		archive := bus.ScopeArchive{
+			Format: bus.ScopeArchiveFormat, Version: bus.ScopeArchiveVersion,
+			ExportedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Scope:      bus.ArchivedScope{ID: scopeID + "-archive", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)},
+			Agents:     []bus.ArchivedAgent{}, Links: []bus.ArchivedPeerLink{}, Messages: []bus.ArchivedMessage{},
+			Tasks: []bus.ArchivedTask{}, TaskProgress: []bus.ArchivedTaskProgress{}, Escalations: []bus.ArchivedEscalation{},
+			AgentCardPublications: []bus.ArchivedAgentCard{}, OutputStreams: []bus.ArchivedOutputStream{}, OutputValues: []bus.ArchivedOutputValue{},
+		}
+		imported, err := admin.ImportScope(ctx, archive)
+		if err != nil || !imported.Imported || imported.ScopeID != archive.Scope.ID || imported.ScopeToken == "" {
+			return fmt.Errorf("unexpected archive import: %#v, %v", imported, err)
+		}
+		retry, err := admin.ImportScope(ctx, archive)
+		if err != nil || retry.Imported || retry.ScopeID != imported.ScopeID || retry.ScopeToken != "" {
+			return fmt.Errorf("archive retry was not idempotent: %#v, %v", retry, err)
+		}
+		exported, err := admin.ExportScope(ctx, imported.ScopeID)
+		if err != nil || exported.Scope.ID != imported.ScopeID || exported.Format != bus.ScopeArchiveFormat || exported.Version != bus.ScopeArchiveVersion {
+			return fmt.Errorf("unexpected archive export: %#v, %v", exported, err)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
 	var plannerRegistration, reviewerRegistration bus.RegisterAgentResult
 	if err := record.check("registration-and-peer-link", func() error {
 		var err error

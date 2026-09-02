@@ -232,6 +232,127 @@ export interface IssuedOutputPrincipal {
   credential: string
 }
 
+export interface ArchivedScope {
+  id: ScopeId
+  createdAt: string
+}
+
+export interface ArchivedAgent {
+  id: AgentId
+  displayName: string
+  capabilities: AgentCapability[]
+  registeredAt: string
+  updatedAt: string
+}
+
+export interface ArchivedPeerLink {
+  left: AgentId
+  right: AgentId
+  createdAt: string
+}
+
+export interface ArchivedMessage {
+  id: MessageId
+  from: AgentId
+  to: AgentId
+  mode: MessageMode
+  body: string
+  context: ContextItem[]
+  responseTo?: MessageId
+  idempotencyKey?: string
+  state: Exclude<DeliveryState, 'reserved'>
+  createdAt: string
+  expiresAt?: string
+  deliveredAt?: string
+  acknowledgedAt?: string
+  repliedAt?: string
+  responseMessageId?: MessageId
+}
+
+export interface ArchivedTask {
+  id: TaskId
+  title: string
+  description: string
+  createdBy: AgentId | null
+  claimedBy?: AgentId
+  status: Exclude<TaskStatus, 'claimed'>
+  dependencies: TaskId[]
+  note?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArchivedTaskProgress {
+  taskId: TaskId
+  sequence: number
+  agentId: AgentId
+  kind: TaskProgressKind
+  text: string
+  createdAt: string
+}
+
+export interface ArchivedEscalation {
+  id: string
+  agentId: AgentId
+  question: string
+  options: string[]
+  status: 'pending' | 'resolved' | 'cancelled'
+  answer?: string
+  createdAt: string
+  resolvedAt?: string
+}
+
+export interface ArchivedAgentCard {
+  id: string
+  agentId: AgentId
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArchivedOutputStream {
+  id: string
+  name: string
+  retentionLimit: number
+  currentSequence: number
+  minimumCursor: number
+  publisherAgentIds: AgentId[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArchivedOutputValue {
+  streamId: string
+  sequence: number
+  producerType: 'agent' | 'principal'
+  producerId: string
+  contentType: OutputContentType
+  value: unknown
+  reference?: OutputReference
+  createdAt: string
+}
+
+export interface ScopeArchive {
+  format: 'october-bus.scope'
+  version: 1
+  exportedAt: string
+  scope: ArchivedScope
+  agents: ArchivedAgent[]
+  links: ArchivedPeerLink[]
+  messages: ArchivedMessage[]
+  tasks: ArchivedTask[]
+  taskProgress: ArchivedTaskProgress[]
+  escalations: ArchivedEscalation[]
+  agentCardPublications: ArchivedAgentCard[]
+  outputStreams: ArchivedOutputStream[]
+  outputValues: ArchivedOutputValue[]
+}
+
+export interface ImportScopeResult {
+  scopeId: ScopeId
+  scopeToken?: string
+  imported: boolean
+}
+
 export interface HumanEscalation {
   id: string
   scopeId: ScopeId

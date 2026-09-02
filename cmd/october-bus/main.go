@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -25,6 +27,8 @@ Usage:
   october-bus status
   october-bus doctor [--json]
   october-bus scope create [scope-id]
+  october-bus scope export --id <scope-id> --output <path> [--address <addr>]
+  october-bus scope import --input <path> [--address <addr>]
   october-bus scope storage [--json] [--address <addr>]
   october-bus scope prune --before <timestamp> [--yes] [--json] [--address <addr>]
   october-bus message receipt <message-id> [--json] [--address <addr>]
@@ -232,6 +236,130 @@ func createScope(id string) error {
 		return err
 	}
 	fmt.Println(string(encoded))
+	return nil
+}
+
+func adminClient(explicitAddress string) (bus.Client, error) {
+	if token := os.Getenv("OCTOBER_BUS_ADMIN_TOKEN"); token != "" {
+		address, err := resolveBusAddress(explicitAddress)
+		if err != nil {
+			return bus.Client{}, err
+		}
+		return bus.Client{Address: address, Token: token, HTTP: &http.Client{Timeout: 2 * time.Minute}}, nil
+	}
+	paths, err := bus.DefaultDaemonPaths()
+	if err != nil {
+		return bus.Client{}, err
+	}
+	run, err := bus.ReadRunFile(paths.RunFile)
+	if err != nil {
+		return bus.Client{}, err
+	}
+	if explicitAddress != "" && explicitAddress != run.Address {
+		return bus.Client{}, errors.New("OCTOBER_BUS_ADMIN_TOKEN is required for a remote daemon")
+	}
+	return bus.Client{Address: run.Address, Token: run.AdminToken, HTTP: &http.Client{Timeout: 2 * time.Minute}}, nil
+}
+
+func exportScope(args []string) error {
+	flags := flag.NewFlagSet("scope export", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	scopeID := flags.String("id", "", "scope id to export")
+	output := flags.String("output", "", "archive output path")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *scopeID == "" || *output == "" {
+		return errors.New("scope export requires --id and --output")
+	}
+	client, err := adminClient(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	archive, err := client.ExportScope(ctx, *scopeID)
+	if err != nil {
+		return fmt.Errorf("could not export scope: %w", err)
+	}
+	data, err := json.MarshalIndent(archive, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	file, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not create archive: %w", err)
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = os.Remove(*output)
+		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return fmt.Errorf("could not write archive: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	complete = true
+	fmt.Printf("Exported scope %s to %s\n", archive.Scope.ID, *output)
+	return nil
+}
+
+func importScope(args []string) error {
+	flags := flag.NewFlagSet("scope import", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	input := flags.String("input", "", "archive input path")
+	address := flags.String("address", "", "October Bus address")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *input == "" {
+		return errors.New("scope import requires --input")
+	}
+	file, err := os.Open(*input)
+	if err != nil {
+		return fmt.Errorf("could not open archive: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("could not inspect archive: %w", err)
+	}
+	if info.Size() > 64*1024*1024 {
+		return errors.New("archive exceeds 64 MiB")
+	}
+	var archive bus.ScopeArchive
+	decoder := json.NewDecoder(io.LimitReader(file, 64*1024*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&archive); err != nil {
+		return fmt.Errorf("could not read archive: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("archive must contain one JSON value")
+	}
+	client, err := adminClient(*address)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := client.ImportScope(ctx, archive)
+	if err != nil {
+		return fmt.Errorf("could not import scope: %w", err)
+	}
+	encoded, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(encoded))
+	if !result.Imported {
+		fmt.Fprintln(os.Stderr, "Archive was already imported. The original scope token is not returned again.")
+	}
 	return nil
 }
 
@@ -804,6 +932,12 @@ func run() error {
 		}
 		if len(args) >= 2 && args[1] == "storage" {
 			return scopeStorage(args[2:])
+		}
+		if len(args) >= 2 && args[1] == "export" {
+			return exportScope(args[2:])
+		}
+		if len(args) >= 2 && args[1] == "import" {
+			return importScope(args[2:])
 		}
 		if len(args) >= 2 && args[1] == "prune" {
 			return scopePrune(args[2:])
