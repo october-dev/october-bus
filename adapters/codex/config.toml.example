@@ -1,5 +1,6 @@
 [mcp_servers.october_bus]
 command = "october-bus"
 args = ["mcp", "stdio"]
+env_vars = ["OCTOBER_BUS_ADDRESS", "OCTOBER_BUS_AGENT_TOKEN"]
 required = true
 default_tools_approval_mode = "prompt"
