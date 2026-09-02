@@ -7,7 +7,7 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
-- scope token for agent registration, peer links, and human escalation resolution;
+- scope token for agent registration, peer links, project task management, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
@@ -31,6 +31,8 @@ if err != nil {
 agent := bus.Client{Address: address, Token: registration.AgentToken}
 peers, err := agent.ListPeers(ctx)
 messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
+
+ownerTasks, err := owner.ListTasks(ctx, true)
 ```
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
@@ -46,7 +48,7 @@ npm install @october-dev/october-bus@next
 ```
 
 ```ts
-import { OctoberBusAgentSession } from '@october-dev/october-bus'
+import { OctoberBusAgentSession, OctoberBusScopeClient } from '@october-dev/october-bus'
 
 const session = await OctoberBusAgentSession.start({
   address,
@@ -61,6 +63,7 @@ const session = await OctoberBusAgentSession.start({
 await session.setState('ready', true)
 const peers = await session.client.listPeers({ timeoutMs: 10_000 })
 const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
+const readyTasks = await new OctoberBusScopeClient(address, scopeToken).listTasks({ ready: true })
 ```
 
 Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox reservation and pull operations also accept `waitMs` up to 25 seconds. The default request timeout is 30 seconds.

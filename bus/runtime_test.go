@@ -235,11 +235,11 @@ func TestTaskClaimsRespectDependenciesAndOwnership(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
 	ctx := context.Background()
-	first, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Description: "Implement"})
+	first, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Implement"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Description: "Review", Dependencies: []string{first.ID}})
+	second, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Review", Dependencies: []string{first.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,11 +259,54 @@ func TestTaskClaimsRespectDependenciesAndOwnership(t *testing.T) {
 	}
 }
 
+func TestScopeTaskBoardListsOnlyReadyWork(t *testing.T) {
+	agents := setupAgents(t, ":memory:")
+	defer agents.runtime.Close()
+	ctx := context.Background()
+	first, err := agents.runtime.AddTask(ctx, agents.scope.ScopeToken, AddTaskInput{
+		Title: "Implement checkout retries", Description: "Keep idempotency keys across retries.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CreatedBy != nil || !first.Ready {
+		t.Fatalf("unexpected scope-created task: %#v", first)
+	}
+	second, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{
+		Title: "Review checkout retries", Dependencies: []string{first.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.CreatedBy == nil || *second.CreatedBy != "planner" || second.Ready {
+		t.Fatalf("unexpected agent-created task: %#v", second)
+	}
+	ready, err := agents.runtime.ListTasks(ctx, agents.scope.ScopeToken, true)
+	if err != nil || len(ready) != 1 || ready[0].ID != first.ID {
+		t.Fatalf("unexpected ready tasks: %#v, %v", ready, err)
+	}
+	if _, err := agents.runtime.ClaimTask(ctx, agents.scope.ScopeToken, first.ID); err == nil {
+		t.Fatal("scope authority claimed a task")
+	} else {
+		requireCode(t, err, CodeUnauthenticated)
+	}
+	if _, err := agents.runtime.ClaimTask(ctx, agents.reviewerToken, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agents.runtime.CompleteTask(ctx, agents.reviewerToken, first.ID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	ready, err = agents.runtime.ListTasks(ctx, agents.plannerToken, true)
+	if err != nil || len(ready) != 1 || ready[0].ID != second.ID {
+		t.Fatalf("dependent task did not become ready: %#v, %v", ready, err)
+	}
+}
+
 func TestTaskReleaseAndExecutionReplacementRecoverClaims(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
 	ctx := context.Background()
-	task, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Description: "Review"})
+	task, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Review"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +464,7 @@ func TestOlderSchemaFailsBeforeServingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Open(path)
-	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 2") {
+	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 3") {
 		t.Fatalf("older schema did not fail clearly: %v", err)
 	}
 }

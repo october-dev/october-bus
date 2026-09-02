@@ -112,7 +112,7 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 	if err != nil || len(messages) != 1 || messages[0].Body != "Forwarded over stdio" {
 		t.Fatalf("unexpected forwarded message: %#v, %v", messages, err)
 	}
-	callMCPBridgeTool(t, ctx, session, "add_task", map[string]any{"description": "Forward a task"})
+	callMCPBridgeTool(t, ctx, session, "add_task", map[string]any{"title": "Forward a task"})
 	callMCPBridgeTool(t, ctx, session, "ask_user", map[string]any{"question": "Continue?"})
 }
 
@@ -617,6 +617,76 @@ func TestListAgentsRejectsInvalidOrAgentCredential(t *testing.T) {
 
 func runListAgentsCapturing(output *bytes.Buffer, args ...string) error {
 	return captureStdout(output, func() error { return listAgents(args) })
+}
+
+func TestTaskCommandsManageScopeBoard(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	address, scopeToken, senderToken, _, cleanup := startTestServer(t, ctx, "task-board-e2e")
+	defer cleanup()
+	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scopeToken)
+
+	var firstOutput bytes.Buffer
+	if err := captureStdout(&firstOutput, func() error {
+		return addTask([]string{"--title", "Implement retries", "--description", "Preserve idempotency.", "--json", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var first bus.Task
+	if err := json.Unmarshal(firstOutput.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.CreatedBy != nil || !first.Ready || first.Title != "Implement retries" {
+		t.Fatalf("unexpected first task: %#v", first)
+	}
+
+	var secondOutput bytes.Buffer
+	if err := captureStdout(&secondOutput, func() error {
+		return addTask([]string{"--title", "Review retries", "--depends-on", first.ID, "--json", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var second bus.Task
+	if err := json.Unmarshal(secondOutput.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+
+	var readyOutput bytes.Buffer
+	if err := captureStdout(&readyOutput, func() error {
+		return listTasks([]string{"--ready", "--json", "--address", address})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var ready []bus.Task
+	if err := json.Unmarshal(readyOutput.Bytes(), &ready); err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) != 1 || ready[0].ID != first.ID {
+		t.Fatalf("unexpected ready board: %#v", ready)
+	}
+
+	agent := bus.Client{Address: address, Token: senderToken}
+	if _, err := agent.ClaimTask(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.CompleteTask(ctx, first.ID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := (bus.Client{Address: address, Token: scopeToken}).ListTasks(ctx, true)
+	if err != nil || len(ready) != 1 || ready[0].ID != second.ID {
+		t.Fatalf("dependent task did not become ready: %#v, %v", ready, err)
+	}
+}
+
+func TestTaskListQuotesUntrustedText(t *testing.T) {
+	tasks := []bus.Task{{ID: "task_1", Title: "Review\n\x1b[31mForged", Description: "Check\nlogs", Status: "open", Ready: true}}
+	var output bytes.Buffer
+	if err := captureStdout(&output, func() error { return printTasksHuman(tasks) }); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "\x1b") || !strings.Contains(output.String(), `"Review\n\x1b[31mForged"`) {
+		t.Fatalf("task output did not quote untrusted text: %q", output.String())
+	}
 }
 
 func captureStdout(output *bytes.Buffer, run func() error) error {

@@ -101,11 +101,13 @@ type InboxReservation struct {
 type Task struct {
 	ID           string   `json:"id"`
 	ScopeID      string   `json:"scopeId"`
+	Title        string   `json:"title"`
 	Description  string   `json:"description"`
-	CreatedBy    string   `json:"createdBy"`
+	CreatedBy    *string  `json:"createdBy"`
 	ClaimedBy    string   `json:"claimedBy,omitempty"`
 	Status       string   `json:"status"`
 	Dependencies []string `json:"dependencies"`
+	Ready        bool     `json:"ready"`
 	Note         string   `json:"note,omitempty"`
 	CreatedAt    string   `json:"createdAt"`
 	UpdatedAt    string   `json:"updatedAt"`
@@ -163,7 +165,8 @@ type SendMessageInput struct {
 }
 
 type AddTaskInput struct {
-	Description  string   `json:"description"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 }
 

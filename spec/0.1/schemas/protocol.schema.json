@@ -243,9 +243,10 @@
     "addTaskInput": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["description"],
+	      "required": ["title"],
       "properties": {
-        "description": { "type": "string", "minLength": 1, "maxLength": 16384 },
+	        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+	        "description": { "type": "string", "maxLength": 16384 },
         "dependencies": {
           "type": "array",
           "maxItems": 128,
@@ -256,12 +257,18 @@
     "task": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "scopeId", "description", "createdBy", "status", "dependencies", "createdAt", "updatedAt"],
+	      "required": ["id", "scopeId", "title", "description", "createdBy", "status", "dependencies", "ready", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "scopeId": { "$ref": "#/$defs/identifier" },
-        "description": { "type": "string", "minLength": 1, "maxLength": 16384 },
-        "createdBy": { "$ref": "#/$defs/identifier" },
+	        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+	        "description": { "type": "string", "maxLength": 16384 },
+	        "createdBy": {
+	          "anyOf": [
+	            { "$ref": "#/$defs/identifier" },
+	            { "type": "null" }
+	          ]
+	        },
         "claimedBy": { "$ref": "#/$defs/identifier" },
         "status": { "type": "string", "enum": ["open", "claimed", "done"] },
         "dependencies": {
@@ -269,6 +276,7 @@
           "maxItems": 128,
           "items": { "$ref": "#/$defs/identifier" }
         },
+	        "ready": { "type": "boolean" },
         "note": { "type": "string", "maxLength": 16384 },
         "createdAt": { "$ref": "#/$defs/instant" },
         "updatedAt": { "$ref": "#/$defs/instant" }

@@ -303,11 +303,14 @@ func (r *Runtime) AcknowledgeMessages(ctx context.Context, agentToken string, me
 }
 
 func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskInput) (Task, error) {
-	principal, err := r.Principal(ctx, agentToken)
+	scopeID, createdBy, err := r.taskAuthority(ctx, agentToken)
 	if err != nil {
 		return Task{}, err
 	}
-	if err := validateText(input.Description, "description", 16384, false); err != nil {
+	if err := validateText(input.Title, "title", 256, false); err != nil {
+		return Task{}, err
+	}
+	if err := validateText(input.Description, "description", 16384, true); err != nil {
 		return Task{}, err
 	}
 	if len(input.Dependencies) > 128 {
@@ -318,7 +321,7 @@ func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskI
 			return Task{}, err
 		}
 	}
-	return r.store.AddTask(ctx, principal, input)
+	return r.store.AddTask(ctx, scopeID, createdBy, input)
 }
 
 func (r *Runtime) ClaimTask(ctx context.Context, agentToken, taskID string) (Task, error) {
@@ -357,12 +360,24 @@ func (r *Runtime) CompleteTask(ctx context.Context, agentToken, taskID, note str
 	return r.store.CompleteTask(ctx, principal, taskID, note)
 }
 
-func (r *Runtime) ListTasks(ctx context.Context, agentToken string) ([]Task, error) {
-	principal, err := r.Principal(ctx, agentToken)
+func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) ([]Task, error) {
+	scopeID, _, err := r.taskAuthority(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	return r.store.ListTasks(ctx, principal.ScopeID)
+	return r.store.ListTasks(ctx, scopeID, readyOnly)
+}
+
+func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID, createdBy string, err error) {
+	principal, agentErr := r.Principal(ctx, token)
+	if agentErr == nil {
+		return principal.ScopeID, principal.AgentID, nil
+	}
+	scopeID, scopeErr := r.store.AuthenticateScope(ctx, token)
+	if scopeErr == nil {
+		return scopeID, "", nil
+	}
+	return "", "", agentErr
 }
 
 func (r *Runtime) AskHuman(ctx context.Context, agentToken string, input AskHumanInput) (HumanEscalation, error) {

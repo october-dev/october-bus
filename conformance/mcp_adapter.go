@@ -441,12 +441,12 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 	}
 
 	if err := record.check("shared-task-lifecycle", func() error {
-		first, err := callTool[bus.Task](ctx, adapter.session, "add_task", map[string]any{"description": "First task"})
+		first, err := callTool[bus.Task](ctx, adapter.session, "add_task", map[string]any{"title": "First task"})
 		if err != nil {
 			return err
 		}
 		blocked, err := callTool[bus.Task](ctx, adapter.session, "add_task", map[string]any{
-			"description": "Dependent task", "dependencies": []string{first.ID},
+			"title": "Dependent task", "dependencies": []string{first.ID},
 		})
 		if err != nil {
 			return err
@@ -572,7 +572,7 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 			return err
 		}
 		logs = append(logs, crashAdapter.stderr)
-		task, err := callTool[bus.Task](ctx, crashAdapter.session, "add_task", map[string]any{"description": "Recover after expiry"})
+		task, err := callTool[bus.Task](ctx, crashAdapter.session, "add_task", map[string]any{"title": "Recover after expiry"})
 		if err != nil {
 			_ = crashAdapter.close()
 			stopCrash()

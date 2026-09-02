@@ -80,11 +80,13 @@ export interface InboxReservation {
 export interface BusTask {
   id: TaskId
   scopeId: ScopeId
+  title: string
   description: string
-  createdBy: AgentId
+  createdBy: AgentId | null
   claimedBy?: AgentId
   status: TaskStatus
   dependencies: TaskId[]
+  ready: boolean
   note?: string
   createdAt: string
   updatedAt: string
@@ -135,7 +137,8 @@ export interface SendMessageInput {
 }
 
 export interface AddTaskInput {
-  description: string
+  title: string
+  description?: string
   dependencies?: TaskId[]
 }
 

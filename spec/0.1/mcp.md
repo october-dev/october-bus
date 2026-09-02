@@ -18,7 +18,7 @@ The reference CLI can forward this same MCP surface over stdio with `october-bus
 | `claim_task` | Claim a dependency-ready task |
 | `release_task` | Release a task claimed by this execution |
 | `complete_task` | Complete a task claimed by this execution |
-| `list_tasks` | List shared tasks and dependency state |
+| `list_tasks` | List shared tasks and optionally return only ready work |
 | `ask_user` | Create a human escalation |
 | `get_node_status` | Read the current identity, lease, and lifecycle |
 

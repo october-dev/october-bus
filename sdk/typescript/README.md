@@ -37,6 +37,12 @@ const reviewerRegistration = await scope.registerAgent({
 const planner = new OctoberBusClient(address, plannerRegistration.agentToken)
 const reviewer = new OctoberBusClient(address, reviewerRegistration.agentToken)
 
+const task = await scope.addTask({
+  title: 'Review checkout retries',
+  description: 'Check idempotency and error handling.'
+})
+const readyTasks = await scope.listTasks({ ready: true })
+
 const receipt = await planner.sendMessage({
   to: 'reviewer',
   mode: 'request',
@@ -57,7 +63,7 @@ const messages = await reviewer.pullInbox(50, { waitMs: 25_000 })
 
 The server caps each wait at 25 seconds. Cancellation through `AbortSignal` does not reserve or lose a message.
 
-Scope credentials create agents and handle human escalations. Agent credentials discover peers, exchange messages, coordinate tasks, and ask for human input.
+Scope credentials create agents, manage the project task board, and handle human escalations. Agent credentials discover peers, exchange messages, coordinate tasks, and ask for human input. Claims and completion always require an execution-bound agent credential.
 
 Operations time out after 30 seconds by default. Pass `{ timeoutMs, signal }` as the final method argument to set a shorter deadline or cancel a request.
 

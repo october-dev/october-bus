@@ -120,14 +120,19 @@ func TestProtocolSchemas(t *testing.T) {
 
 	task := resolvedSchema(t, path, "task")
 	requireValid(t, task, map[string]any{
-		"id": "task_123", "scopeId": "scope", "description": "Review",
+		"id": "task_123", "scopeId": "scope", "title": "Review", "description": "Review the change",
 		"createdBy": "planner", "claimedBy": "reviewer", "status": "done",
-		"dependencies": []any{}, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+		"dependencies": []any{}, "ready": false, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+	})
+	requireValid(t, task, map[string]any{
+		"id": "task_124", "scopeId": "scope", "title": "Plan", "description": "",
+		"createdBy": nil, "status": "open", "dependencies": []any{}, "ready": true,
+		"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
 	})
 	requireInvalid(t, task, map[string]any{
-		"id": "task_123", "scopeId": "scope", "description": "Review",
+		"id": "task_123", "scopeId": "scope", "title": "Review", "description": "Review the change",
 		"createdBy": "planner", "status": "claimed", "dependencies": []any{},
-		"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
+		"ready": false, "createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:01Z",
 	})
 }
 
@@ -248,7 +253,7 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatalf("unexpected messages: %#v, %v", messages, err)
 	}
 	requireValid(t, resolvedSchema(t, path, "message"), jsonValue(t, messages[0]))
-	task, err := planner.AddTask(ctx, bus.AddTaskInput{Description: "Review"})
+	task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Review"})
 	if err != nil {
 		t.Fatal(err)
 	}
