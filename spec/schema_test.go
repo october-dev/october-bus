@@ -3,6 +3,7 @@ package spec_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -333,6 +334,21 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "health"), jsonValue(t, health))
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/health/live", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var liveness bus.Liveness
+	decodeErr := json.NewDecoder(response.Body).Decode(&liveness)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || decodeErr != nil {
+		t.Fatalf("unexpected liveness response: HTTP %d, %v", response.StatusCode, decodeErr)
+	}
+	requireValid(t, resolvedSchema(t, path, "liveness"), jsonValue(t, liveness))
 	scope, err := client.CreateScope(ctx, bus.CreateScopeInput{ID: "schema"})
 	if err != nil {
 		t.Fatal(err)

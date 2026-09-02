@@ -237,7 +237,7 @@ func TestInboxWaitRechecksAtLeaseExpiry(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
 	expiresAt := nowMillis() + 60
-	if _, err := agents.runtime.store.db.Exec(`UPDATE agents SET lease_expires_at=? WHERE scope_id=? AND agent_id=?`, expiresAt, agents.scope.ScopeID, agents.reviewer.AgentID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE agents SET lease_expires_at=? WHERE scope_id=? AND agent_id=?`, expiresAt, agents.scope.ScopeID, agents.reviewer.AgentID); err != nil {
 		t.Fatal(err)
 	}
 	started := time.Now()
@@ -259,7 +259,7 @@ func TestInboxWaitRechecksWhenReservationExpires(t *testing.T) {
 	if err != nil || first == nil {
 		t.Fatalf("unexpected initial reservation: %#v, %v", first, err)
 	}
-	if _, err := agents.runtime.store.db.Exec(`UPDATE reservations SET expires_at=? WHERE reservation_id=?`, nowMillis()+60, first.ID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE reservations SET expires_at=? WHERE reservation_id=?`, nowMillis()+60, first.ID); err != nil {
 		t.Fatal(err)
 	}
 	redelivery, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 2000)

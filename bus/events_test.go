@@ -212,7 +212,7 @@ func TestPrunedEventCursorRequiresResync(t *testing.T) {
 	ctx := context.Background()
 	old := time.Now().Add(-2 * time.Hour).UnixMilli()
 	cutoff := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
-	if _, err := agents.runtime.store.db.Exec(`UPDATE events SET created_at=? WHERE scope_id=?`, old, agents.scope.ScopeID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE events SET created_at=? WHERE scope_id=?`, old, agents.scope.ScopeID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := agents.runtime.Heartbeat(ctx, agents.plannerToken, HeartbeatInput{Lifecycle: LifecycleReady, Ready: true, LeaseMS: 30000}); err != nil {

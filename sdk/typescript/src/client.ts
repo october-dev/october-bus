@@ -10,6 +10,7 @@ import type {
   AddTaskProgressInput,
   AskHumanInput,
   BusHealth,
+  BusLiveness,
   BusMessage,
   BusTask,
   CreateScopeInput,
@@ -152,6 +153,10 @@ export class OctoberBusAdminClient {
 
   health(options?: OperationOptions): Promise<BusHealth> {
     return request(this.address, undefined, 'GET', '/health', undefined, options)
+  }
+
+  liveness(options?: OperationOptions): Promise<BusLiveness> {
+    return request(this.address, undefined, 'GET', '/health/live', undefined, options)
   }
 
   createScope(input: CreateScopeInput = {}, options?: OperationOptions): Promise<CreateScopeResult> {

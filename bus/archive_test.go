@@ -174,10 +174,10 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 		t.Fatal("source execution authority survived import")
 	}
 	var restoredA2ATasks, restoredA2AMessages int
-	if err := destination.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_tasks WHERE scope_id=?`, imported.ScopeID).Scan(&restoredA2ATasks); err != nil {
+	if err := sqliteStore(t, destination).db.QueryRow(`SELECT COUNT(*) FROM a2a_tasks WHERE scope_id=?`, imported.ScopeID).Scan(&restoredA2ATasks); err != nil {
 		t.Fatal(err)
 	}
-	if err := destination.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_message_correlations`).Scan(&restoredA2AMessages); err != nil {
+	if err := sqliteStore(t, destination).db.QueryRow(`SELECT COUNT(*) FROM a2a_message_correlations`).Scan(&restoredA2AMessages); err != nil {
 		t.Fatal(err)
 	}
 	if restoredA2ATasks != 1 || restoredA2AMessages != 1 {
@@ -243,7 +243,7 @@ func TestPortableScopeArchiveRejectsMalformedInputAtomically(t *testing.T) {
 	_, err = destination.ImportScope(ctx, archive)
 	requireCode(t, err, CodeInvalidArgument)
 	var count int
-	if err := destination.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM scopes`).Scan(&count); err != nil || count != 0 {
+	if err := sqliteStore(t, destination).db.QueryRowContext(ctx, `SELECT COUNT(*) FROM scopes`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("malformed import applied partial state: %d, %v", count, err)
 	}
 	archive.Version = ScopeArchiveVersion + 1

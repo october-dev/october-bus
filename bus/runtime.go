@@ -16,7 +16,7 @@ const (
 )
 
 type Runtime struct {
-	store              *Store
+	store              storageBackend
 	signals            *runtimeSignals
 	a2aPrincipalLimits A2APrincipalLimits
 }
@@ -39,7 +39,11 @@ func OpenWithOptions(source string, options RuntimeOptions) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{store: store, signals: newRuntimeSignals(), a2aPrincipalLimits: limits}, nil
+	return openWithStorage(store, limits), nil
+}
+
+func openWithStorage(store storageBackend, limits A2APrincipalLimits) *Runtime {
+	return &Runtime{store: store, signals: newRuntimeSignals(), a2aPrincipalLimits: limits}
 }
 
 func normalizedA2APrincipalLimits(options RuntimeOptions) (A2APrincipalLimits, error) {
@@ -62,6 +66,14 @@ func normalizedA2APrincipalLimits(options RuntimeOptions) (A2APrincipalLimits, e
 }
 
 func (r *Runtime) Close() error { return r.store.Close() }
+
+func (r *Runtime) StorageHealth(ctx context.Context) StorageHealth {
+	health := StorageHealth{Backend: r.store.Backend(), Status: StorageAvailable}
+	if err := r.store.Ping(ctx); err != nil {
+		health.Status = StorageUnavailable
+	}
+	return health
+}
 
 func (r *Runtime) CreateScope(ctx context.Context, input CreateScopeInput) (CreateScopeResult, error) {
 	if err := validateIdentity(input.ID, "id", true); err != nil {

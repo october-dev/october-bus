@@ -58,12 +58,32 @@
     "health": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "protocolVersion", "runtimeVersion", "status", "startedAt"],
+      "required": ["name", "protocolVersion", "runtimeVersion", "status", "startedAt", "storage"],
       "properties": {
         "name": { "const": "october-bus" },
         "protocolVersion": { "const": "0.1" },
         "runtimeVersion": { "type": "string", "minLength": 1 },
-        "status": { "const": "ready" },
+        "status": { "enum": ["ready", "not_ready"] },
+        "startedAt": { "$ref": "#/$defs/instant" },
+        "storage": { "$ref": "#/$defs/storageHealth" }
+      }
+    },
+    "storageHealth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "status"],
+      "properties": {
+        "backend": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["available", "unavailable"] }
+      }
+    },
+    "liveness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "startedAt"],
+      "properties": {
+        "name": { "const": "october-bus" },
+        "status": { "const": "alive" },
         "startedAt": { "$ref": "#/$defs/instant" }
       }
     },

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,15 @@ type testAgents struct {
 	reviewer      RegisterAgentResult
 	plannerToken  string
 	reviewerToken string
+}
+
+func sqliteStore(t testing.TB, runtime *Runtime) *Store {
+	t.Helper()
+	store, ok := runtime.store.(*Store)
+	if !ok {
+		t.Fatalf("test requires SQLite storage, got %s", runtime.store.Backend())
+	}
+	return store
 }
 
 func setupAgents(t *testing.T, source string) testAgents {
@@ -371,6 +381,59 @@ func TestOfflineHeartbeatCannotClaimReadiness(t *testing.T) {
 		Lifecycle: LifecycleOffline, Ready: true,
 	})
 	requireCode(t, err, CodeInvalidArgument)
+}
+
+func TestHealthSeparatesLivenessFromStorageReadiness(t *testing.T) {
+	runtimeValue, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(runtimeValue, ServerOptions{StartedAt: "2026-09-03T00:00:00Z"})
+
+	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("ready health returned HTTP %d", response.Code)
+	}
+	var ready Health
+	if err := json.Unmarshal(response.Body.Bytes(), &ready); err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != "ready" || ready.Storage.Backend != StorageBackendSQLite || ready.Storage.Status != StorageAvailable {
+		t.Fatalf("unexpected ready health: %#v", ready)
+	}
+
+	if err := runtimeValue.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/health", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unready health returned HTTP %d", response.Code)
+	}
+	var unready Health
+	if err := json.Unmarshal(response.Body.Bytes(), &unready); err != nil {
+		t.Fatal(err)
+	}
+	if unready.Status != "not_ready" || unready.Storage.Status != StorageUnavailable {
+		t.Fatalf("unexpected unready health: %#v", unready)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("liveness returned HTTP %d", response.Code)
+	}
+	var live Liveness
+	if err := json.Unmarshal(response.Body.Bytes(), &live); err != nil {
+		t.Fatal(err)
+	}
+	if live.Status != "alive" || live.StartedAt == "" {
+		t.Fatalf("unexpected liveness: %#v", live)
+	}
 }
 
 func TestShutdownRequiresAdminAuthority(t *testing.T) {

@@ -202,7 +202,7 @@ func TestOutputStreamsPersistAndRemoveTheirDataAndCredentials(t *testing.T) {
 		t.Fatalf("stream removal left principals: %#v, %v", principals, err)
 	}
 	var valueCount int
-	if err := restarted.store.db.QueryRow(`SELECT COUNT(*) FROM output_values WHERE stream_id=?`, stream.ID).Scan(&valueCount); err != nil || valueCount != 0 {
+	if err := sqliteStore(t, restarted).db.QueryRow(`SELECT COUNT(*) FROM output_values WHERE stream_id=?`, stream.ID).Scan(&valueCount); err != nil || valueCount != 0 {
 		t.Fatalf("stream removal left values: %d, %v", valueCount, err)
 	}
 }
@@ -229,7 +229,7 @@ func TestOutputPayloadLimitsAndPerPrincipalQuota(t *testing.T) {
 	}
 	window := nowMillis()
 	window -= window % 60000
-	if _, err := agents.runtime.store.db.Exec(`INSERT INTO output_rate_usage(scope_id,principal_type,principal_id,window_start,publish_count) VALUES(?,?,?,?,?),(?,?,?,?,?)`,
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`INSERT INTO output_rate_usage(scope_id,principal_type,principal_id,window_start,publish_count) VALUES(?,?,?,?,?),(?,?,?,?,?)`,
 		agents.scope.ScopeID, "agent", agents.reviewer.AgentID, window, outputPublishRate,
 		agents.scope.ScopeID, "agent", agents.reviewer.AgentID, window+60000, outputPublishRate); err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestOutputPayloadLimitsAndPerPrincipalQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.runtime.store.db.Exec(`INSERT INTO output_rate_usage(scope_id,principal_type,principal_id,window_start,read_count) VALUES(?,?,?,?,?),(?,?,?,?,?)`,
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`INSERT INTO output_rate_usage(scope_id,principal_type,principal_id,window_start,read_count) VALUES(?,?,?,?,?),(?,?,?,?,?)`,
 		agents.scope.ScopeID, "principal", reader.Principal.ID, window, outputReadRate,
 		agents.scope.ScopeID, "principal", reader.Principal.ID, window+60000, outputReadRate); err != nil {
 		t.Fatal(err)

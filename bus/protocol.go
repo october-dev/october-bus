@@ -436,11 +436,28 @@ type RunFile struct {
 }
 
 type Health struct {
-	Name            string `json:"name"`
-	ProtocolVersion string `json:"protocolVersion"`
-	RuntimeVersion  string `json:"runtimeVersion"`
-	Status          string `json:"status"`
-	StartedAt       string `json:"startedAt"`
+	Name            string        `json:"name"`
+	ProtocolVersion string        `json:"protocolVersion"`
+	RuntimeVersion  string        `json:"runtimeVersion"`
+	Status          string        `json:"status"`
+	StartedAt       string        `json:"startedAt"`
+	Storage         StorageHealth `json:"storage"`
+}
+
+const (
+	StorageAvailable   = "available"
+	StorageUnavailable = "unavailable"
+)
+
+type StorageHealth struct {
+	Backend StorageBackend `json:"backend"`
+	Status  string         `json:"status"`
+}
+
+type Liveness struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	StartedAt string `json:"startedAt"`
 }
 
 type NodeIdentity struct {

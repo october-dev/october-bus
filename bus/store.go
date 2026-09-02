@@ -64,6 +64,10 @@ func OpenStore(source string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+func (s *Store) Backend() StorageBackend { return StorageBackendSQLite }
+
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
 func (s *Store) initialize(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=2500;`); err != nil {
 		return err

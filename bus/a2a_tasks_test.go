@@ -114,7 +114,7 @@ func TestA2ATaskAllowsFollowUpOnlyBeforeTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.runtime.store.SetA2ATaskState(ctx, principal, task.ID, A2ATaskInputRequired); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).SetA2ATaskState(ctx, principal, task.ID, A2ATaskInputRequired); err != nil {
 		t.Fatal(err)
 	}
 	followUp, err := agents.runtime.AcceptA2AMessage(ctx, issued.Credential, publication.ID, AcceptA2AMessageInput{
@@ -123,7 +123,7 @@ func TestA2ATaskAllowsFollowUpOnlyBeforeTerminalState(t *testing.T) {
 	if err != nil || followUp.State != A2ATaskWorking || len(followUp.Messages) != 2 {
 		t.Fatalf("follow-up was not correlated: %#v, %v", followUp, err)
 	}
-	if _, err := agents.runtime.store.SetA2ATaskState(ctx, principal, task.ID, A2ATaskCanceled); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).SetA2ATaskState(ctx, principal, task.ID, A2ATaskCanceled); err != nil {
 		t.Fatal(err)
 	}
 	_, err = agents.runtime.AcceptA2AMessage(ctx, issued.Credential, publication.ID, AcceptA2AMessageInput{
@@ -151,7 +151,7 @@ func TestA2ATaskIsIsolatedByPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = agents.runtime.store.SetA2ATaskState(ctx, otherPrincipal, task.ID, A2ATaskCanceled)
+	_, err = sqliteStore(t, agents.runtime).SetA2ATaskState(ctx, otherPrincipal, task.ID, A2ATaskCanceled)
 	requireCode(t, err, CodeNotFound)
 }
 
@@ -216,13 +216,13 @@ func TestA2APrincipalMessageLimitsAreIndependentAndAtomic(t *testing.T) {
 	}
 
 	var tasks, correlations, messages int
-	if err := agents.runtime.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_tasks`).Scan(&tasks); err != nil {
+	if err := sqliteStore(t, agents.runtime).db.QueryRow(`SELECT COUNT(*) FROM a2a_tasks`).Scan(&tasks); err != nil {
 		t.Fatal(err)
 	}
-	if err := agents.runtime.store.db.QueryRow(`SELECT COUNT(*) FROM a2a_message_correlations`).Scan(&correlations); err != nil {
+	if err := sqliteStore(t, agents.runtime).db.QueryRow(`SELECT COUNT(*) FROM a2a_message_correlations`).Scan(&correlations); err != nil {
 		t.Fatal(err)
 	}
-	if err := agents.runtime.store.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE from_kind='a2aPrincipal'`).Scan(&messages); err != nil {
+	if err := sqliteStore(t, agents.runtime).db.QueryRow(`SELECT COUNT(*) FROM messages WHERE from_kind='a2aPrincipal'`).Scan(&messages); err != nil {
 		t.Fatal(err)
 	}
 	if tasks != 3 || correlations != 3 || messages != 3 {
@@ -233,7 +233,7 @@ func TestA2APrincipalMessageLimitsAreIndependentAndAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.runtime.store.SetA2ATaskState(ctx, principal, firstTask.ID, A2ATaskCompleted); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).SetA2ATaskState(ctx, principal, firstTask.ID, A2ATaskCompleted); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := agents.runtime.AcceptA2AMessage(ctx, first.Credential, publication.ID, AcceptA2AMessageInput{ClientMessageID: "first-3", Body: "three"}); err != nil {
@@ -255,7 +255,7 @@ func TestA2APrincipalByteLimitAndExpiryRelease(t *testing.T) {
 	}
 	_, err = agents.runtime.AcceptA2AMessage(ctx, issued.Credential, publication.ID, AcceptA2AMessageInput{ClientMessageID: "bytes-2", Body: "6789"})
 	requireCode(t, err, CodeBackpressure)
-	if _, err := agents.runtime.store.db.Exec(`UPDATE messages SET expires_at=? WHERE message_id=?`, time.Now().Add(-time.Second).UnixMilli(), task.Messages[0].BusRequestMessageID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE messages SET expires_at=? WHERE message_id=?`, time.Now().Add(-time.Second).UnixMilli(), task.Messages[0].BusRequestMessageID); err != nil {
 		t.Fatal(err)
 	}
 	usage, err := agents.runtime.ListA2APrincipalUsage(ctx, agents.scope.ScopeToken)

@@ -36,7 +36,9 @@ Failures use:
 
 | Method | Route | Authority | Result |
 | --- | --- | --- | --- |
-| `GET` | `/health` | None | Runtime health and protocol version |
+| `GET` | `/health` | None | Readiness, storage health, and protocol version |
+| `GET` | `/health/live` | None | Process liveness |
+| `GET` | `/health/ready` | None | Readiness, storage health, and protocol version |
 | `POST` | `/v1/admin/shutdown` | Admin | Accepted shutdown request |
 | `GET` | `/v1/admin/scopes/{scopeId}/export` | Admin | Portable scope archive |
 | `POST` | `/v1/admin/scopes/import` | Admin | Imported scope and one-time scope token |
@@ -93,6 +95,8 @@ Failures use:
 | `GET` | `/a2a/agents/{publicationId}/.well-known/agent-card.json` | None | Enabled A2A Agent Card |
 | `POST` | `/a2a/agents/{publicationId}/message:send` | Scoped A2A | Durable A2A Task |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
+
+`/health/live` returns HTTP 200 while the server process can answer requests. `/health` and `/health/ready` return HTTP 200 only when the runtime can reach its storage backend. An unavailable backend returns HTTP 503 with `status: not_ready`. Health responses expose the backend name and availability, never its address or credentials.
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 

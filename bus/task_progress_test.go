@@ -126,7 +126,7 @@ func TestTaskProgressCountIsBounded(t *testing.T) {
 	if _, err := agents.runtime.ClaimTask(ctx, agents.reviewerToken, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	transaction, err := agents.runtime.store.db.Begin()
+	transaction, err := sqliteStore(t, agents.runtime).db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}

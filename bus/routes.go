@@ -57,6 +57,12 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/health",
 		routeMethod{http.MethodGet, s.health},
 	)
+	registerRoute(router, "/health/live",
+		routeMethod{http.MethodGet, s.liveness},
+	)
+	registerRoute(router, "/health/ready",
+		routeMethod{http.MethodGet, s.health},
+	)
 	registerAllMethods(router, "/mcp", s.serveMCP)
 	registerRoute(router, "/v1/admin/shutdown",
 		routeMethod{http.MethodPost, s.shutdownServer},
@@ -240,11 +246,23 @@ func handleRoute(handler routeHandler) http.Handler {
 	})
 }
 
-func (s *Server) health(response http.ResponseWriter, _ *http.Request) error {
-	writeJSON(response, http.StatusOK, Health{
+func (s *Server) health(response http.ResponseWriter, request *http.Request) error {
+	storage := s.runtime.StorageHealth(request.Context())
+	status := "ready"
+	httpStatus := http.StatusOK
+	if storage.Status != StorageAvailable {
+		status = "not_ready"
+		httpStatus = http.StatusServiceUnavailable
+	}
+	writeJSON(response, httpStatus, Health{
 		Name: "october-bus", ProtocolVersion: ProtocolVersion, RuntimeVersion: Version,
-		Status: "ready", StartedAt: s.options.StartedAt,
+		Status: status, StartedAt: s.options.StartedAt, Storage: storage,
 	})
+	return nil
+}
+
+func (s *Server) liveness(response http.ResponseWriter, _ *http.Request) error {
+	writeJSON(response, http.StatusOK, Liveness{Name: "october-bus", Status: "alive", StartedAt: s.options.StartedAt})
 	return nil
 }
 

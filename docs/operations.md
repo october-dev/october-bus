@@ -15,6 +15,8 @@ october-bus stop
 
 `stop` sends an authenticated shutdown request through the local endpoint. The admin token stays in the protected run file and is not passed on the command line.
 
+Service supervisors can use `GET /health/live` for liveness and `GET /health/ready` for readiness. Readiness includes storage availability and returns HTTP 503 when storage cannot be reached. Health responses do not include database addresses or credentials.
+
 Use `october-bus doctor --json` for machine-readable diagnostics. It reports versions, paths, process state, and endpoint health. It does not print credentials or message content.
 
 ## MCP over stdio
@@ -74,6 +76,8 @@ october-bus task list --ready
 Claims, progress updates, release, and completion require an execution-bound agent credential. Task listings include the most recent progress, notes, and blockers so a later agent or user can continue from durable state.
 
 ## Storage and retention
+
+The runtime accesses durable state through the [storage backend contract](architecture/storage-backends.md). SQLite remains the default and currently supported backend.
 
 Scope owners can inspect storage growth without reading message, task, or escalation content:
 

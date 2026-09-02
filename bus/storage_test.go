@@ -54,7 +54,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	if _, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Still active", Dependencies: []string{dependency.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.runtime.store.db.Exec(`UPDATE tasks SET updated_at=? WHERE task_id IN (?,?)`, old, independent.ID, dependency.ID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE tasks SET updated_at=? WHERE task_id IN (?,?)`, old, independent.ID, dependency.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,7 +65,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	if _, err := agents.runtime.ResolveEscalation(ctx, agents.scope.ScopeToken, resolved.ID, "yes"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.runtime.store.db.Exec(`UPDATE escalations SET resolved_at=? WHERE escalation_id=?`, old, resolved.ID); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE escalations SET resolved_at=? WHERE escalation_id=?`, old, resolved.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := agents.runtime.AskHuman(ctx, agents.reviewerToken, AskHumanInput{Question: "Pending question"}); err != nil {
@@ -139,7 +139,7 @@ func setMessageState(t *testing.T, agents testAgents, id string, state DeliveryS
 	if deliveredAt != 0 {
 		delivered = deliveredAt
 	}
-	if _, err := agents.runtime.store.db.Exec(`UPDATE messages SET state=?,acknowledged_at=?,delivered_at=? WHERE message_id=?`, state, acknowledged, delivered, id); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE messages SET state=?,acknowledged_at=?,delivered_at=? WHERE message_id=?`, state, acknowledged, delivered, id); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -150,7 +150,7 @@ func setMessageExpired(t *testing.T, agents testAgents, id string, expiresAt int
 	if delivered {
 		deliveredAt = expiresAt - 1
 	}
-	if _, err := agents.runtime.store.db.Exec(`UPDATE messages SET state='expired',expires_at=?,delivered_at=? WHERE message_id=?`, expiresAt, deliveredAt, id); err != nil {
+	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE messages SET state='expired',expires_at=?,delivered_at=? WHERE message_id=?`, expiresAt, deliveredAt, id); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -175,7 +175,7 @@ func requireRowCount(t *testing.T, agents testAgents, table, column, id string, 
 	t.Helper()
 	query := `SELECT COUNT(*) FROM ` + table + ` WHERE ` + column + `=?`
 	var count int
-	if err := agents.runtime.store.db.QueryRow(query, id).Scan(&count); err != nil {
+	if err := sqliteStore(t, agents.runtime).db.QueryRow(query, id).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != want {

@@ -83,12 +83,33 @@ func (c Client) Health(ctx context.Context) (Health, error) {
 		return Health{}, err
 	}
 	defer response.Body.Close()
+	var health Health
+	decodeErr := json.NewDecoder(response.Body).Decode(&health)
 	if response.StatusCode != http.StatusOK {
+		if decodeErr == nil {
+			return health, fmt.Errorf("health check failed with HTTP %d", response.StatusCode)
+		}
 		return Health{}, fmt.Errorf("health check failed with HTTP %d", response.StatusCode)
 	}
-	var health Health
-	err = json.NewDecoder(response.Body).Decode(&health)
-	return health, err
+	return health, decodeErr
+}
+
+func (c Client) Liveness(ctx context.Context) (Liveness, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Address+"/health/live", nil)
+	if err != nil {
+		return Liveness{}, err
+	}
+	response, err := c.httpClient().Do(req)
+	if err != nil {
+		return Liveness{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return Liveness{}, fmt.Errorf("liveness check failed with HTTP %d", response.StatusCode)
+	}
+	var liveness Liveness
+	err = json.NewDecoder(response.Body).Decode(&liveness)
+	return liveness, err
 }
 
 func (c Client) CreateScope(ctx context.Context, input CreateScopeInput) (CreateScopeResult, error) {
