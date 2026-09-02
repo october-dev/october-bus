@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "harnessFamily": "Codex",
+  "harnessVersion": "0.152.1",
+  "adapterId": "codex-mcp",
+  "adapterVersion": "0.1.0",
+  "protocolVersion": "0.1",
+  "runtimeVersion": "0.1.0-rc.4",
+  "operatingSystem": "macos",
+  "architecture": "arm64",
+  "profile": "mcp-adapter",
+  "result": "passed",
+  "resultDigest": "sha256:bd980ccca1aeb7598f3f29fa56be0c4fc0a122a481ed07a01718a6e352edfa27",
+  "verifiedAt": "2026-09-02T13:05:48Z",
+  "repositoryCommit": "a8c2793ffc3925421f8782ac08985dfa88d2fcc0",
+  "verificationMode": "assisted",
+  "limitations": [
+    "Pull-only delivery",
+    "Process reachability does not prove model readiness",
+    "Verified only on macOS arm64"
+  ]
+}

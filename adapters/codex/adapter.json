@@ -3,19 +3,20 @@
   "id": "codex-mcp",
   "adapterVersion": "0.1.0",
   "harnessFamily": "Codex",
-  "status": "experimental",
+  "status": "verified",
   "protocolVersions": ["0.1"],
   "transport": "mcp",
   "delivery": "pull",
   "lifecycleEvidence": "process",
   "capabilities": ["discovery", "messaging", "requests", "tasks", "escalation", "bounded-context"],
-  "testedVersions": [],
-  "platforms": ["macos", "linux", "windows"],
+  "testedVersions": ["0.152.1"],
+  "platforms": ["macos"],
   "maintainer": "October",
   "repository": "https://github.com/october-dev/october-bus",
   "limitations": [
-    "Not yet conformance-verified",
     "Pull-only delivery",
-    "Process reachability does not prove model readiness"
-  ]
+    "Process reachability does not prove model readiness",
+    "Verified only on macOS arm64"
+  ],
+  "conformanceCommand": "october-bus-conformance --profile mcp-adapter --start-runtime --adapter-command october-bus --adapter-arg mcp --adapter-arg stdio"
 }

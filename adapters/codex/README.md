@@ -1,6 +1,6 @@
 # Codex adapter
 
-Status: early integration, not yet conformance-verified.
+Status: verified with Codex CLI 0.152.1 on macOS arm64. Other versions and platforms remain unverified.
 
 Start October Bus, then create a scope. Add the example MCP server entry to a trusted project's `.codex/config.toml`. It launches the stdio bridge inside the managed agent execution.
 
