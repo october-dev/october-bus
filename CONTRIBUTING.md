@@ -51,4 +51,15 @@ New adapters should keep registration, heartbeat, credential handling, and clean
 - Use clear commit messages that describe the user-visible outcome.
 - Confirm compatibility claims against the public evidence registry.
 
+## Review and merge policy
+
+- Changes to `main` go through a pull request.
+- Wait for every required check to pass before merging.
+- External contributions require an approving maintainer review.
+- Protocol, runtime, dependency, security, and workflow changes require code-owner review.
+- Resolve review conversations and request a new review after material changes.
+- Never merge with a failed, skipped, or incomplete required check.
+- Changes to a pinned dependency must update the public pin record in the same pull request.
+- Release tags are created only from reviewed commits with passing checks.
+
 By contributing, you agree that your contribution is licensed under Apache 2.0.

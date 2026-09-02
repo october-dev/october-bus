@@ -1,0 +1,12 @@
+# Default review owner
+* @harshsaver
+
+# Protocol, runtime, security, and release boundaries
+/bus/ @harshsaver
+/a2abridge/ @harshsaver
+/spec/ @harshsaver
+/conformance/ @harshsaver
+/sdk/ @harshsaver
+/.github/ @harshsaver
+/go.mod @harshsaver
+/go.sum @harshsaver
