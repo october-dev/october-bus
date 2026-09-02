@@ -10,6 +10,8 @@ Each evidence record must validate against [`compatibility-evidence.schema.json`
 
 Use the [harness verification runbook](RUNBOOK.md) to produce a reproducible evidence record.
 
+The automated `mcp-adapter` runner verifies an adapter executable without asking a model to perform the checks. This establishes the transport and coordination behavior of the adapter. It does not establish compatibility for a named harness. A harness enters this registry only after its released version also completes the runbook through that adapter.
+
 ## Support levels
 
 | Level | Meaning |

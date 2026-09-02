@@ -41,7 +41,9 @@ An `experimental` manifest describes integration work but is never compatibility
 
 ## MCP adapter profile
 
-An MCP adapter passes the required profile when a released harness version can:
+The automated MCP adapter profile verifies the executable adapter separately from a harness. A passing adapter run is necessary, but is not compatibility evidence for a named harness. Harness evidence additionally requires a released harness version to complete the verification runbook through that adapter.
+
+The complete MCP adapter profile requires that the adapter and released harness can:
 
 1. start through the adapter with an execution-bound agent credential;
 2. remain leased through heartbeat owned outside the model loop;

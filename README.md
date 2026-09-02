@@ -197,24 +197,25 @@ If a harness cannot safely wake itself or prove that it is idle, it can implemen
 
 Early Claude Code, Codex, Cursor, and OpenCode configurations live in `adapters/`. They are not yet conformance-verified and are not compatibility claims. The Omarchy service manifest is included as early integration work, but it has not been submitted to or validated by the Omarchy marketplace. The [compatibility registry](compatibility/README.md) starts empty and will list only adapters with current passing evidence.
 
-The local-runtime conformance runner uses only the public HTTP and MCP interfaces. Against a test daemon, run:
+The conformance runner can start an isolated runtime and remove its state when the run finishes:
 
 ```bash
-go run ./cmd/october-bus-conformance
+october-bus-conformance --start-runtime --format text
 ```
 
-Use `--format text` for concise terminal output. JSON is the default and failed runs exit nonzero with the failed check recorded.
+The `mcp-adapter` profile drives an adapter command over stdio while checking results independently through the public Bus API:
 
-It covers authority, registration, discovery, durable delivery, acknowledgements, idempotency, replies, expiry, task dependencies, release and recovery, escalation, isolation, the MCP tool surface, and lifecycle cleanup. Future adapter profiles will also cover:
+```bash
+october-bus-conformance \
+  --profile mcp-adapter \
+  --start-runtime \
+  --adapter-command october-bus \
+  --adapter-arg mcp \
+  --adapter-arg stdio \
+  --format text
+```
 
-- identity, registration, and execution replacement;
-- discovery, capabilities, presence, and reachability;
-- durable messaging, receipts, retries, expiry, and reply linking;
-- task claiming, completion, and dependencies;
-- bounded context exchange;
-- human escalation and permission boundaries;
-- lifecycle reporting and cleanup;
-- every optional wake or completion behavior an adapter declares.
+JSON is the default. Failed runs exit nonzero with the failed check recorded. An adapter command passing this profile does not by itself verify a harness. Harness compatibility also requires a released harness to pass the [verification runbook](compatibility/RUNBOOK.md). See [conformance profiles](docs/conformance.md) for details.
 
 ## Security and trust
 
