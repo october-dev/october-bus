@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 const (
@@ -107,6 +108,11 @@ func (s *Store) AddTaskProgress(ctx context.Context, principal Principal, taskID
 	progress := TaskProgress{
 		TaskID: taskID, Sequence: sequence, AgentID: principal.AgentID, ExecutionID: principal.ExecutionID,
 		Kind: input.Kind, Text: input.Text, CreatedAt: instant(now),
+	}
+	if err := appendEvent(ctx, tx, principal.ScopeID, "task.progress_added", taskID, eventAttributes(
+		"agentId", principal.AgentID, "executionId", principal.ExecutionID, "kind", input.Kind, "sequence", fmt.Sprintf("%d", sequence),
+	), now); err != nil {
+		return TaskProgress{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return TaskProgress{}, err

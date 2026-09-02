@@ -464,7 +464,7 @@ func TestOlderSchemaFailsBeforeServingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Open(path)
-	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 4") {
+	if err == nil || !strings.Contains(err.Error(), "database schema 1 does not match 5") {
 		t.Fatalf("older schema did not fail clearly: %v", err)
 	}
 }

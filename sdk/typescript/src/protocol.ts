@@ -104,6 +104,25 @@ export interface TaskProgress {
   createdAt: string
 }
 
+export interface BusEvent {
+  id: string
+  scopeId: ScopeId
+  type: string
+  subjectId: string
+  revision: number
+  attributes: Record<string, string>
+  createdAt: string
+}
+
+export interface EventBatch {
+  scopeId: ScopeId
+  events: BusEvent[]
+  nextRevision: number
+  currentRevision: number
+  minimumCursor: number
+  resyncRequired: boolean
+}
+
 export interface HumanEscalation {
   id: string
   scopeId: ScopeId
@@ -160,7 +179,7 @@ export interface AddTaskProgressInput {
 }
 
 export interface StorageRecordSummary {
-  recordType: 'message' | 'task' | 'taskProgress' | 'escalation'
+  recordType: 'message' | 'task' | 'taskProgress' | 'escalation' | 'event'
   state: string
   count: number
   estimatedBytes: number
@@ -184,6 +203,7 @@ export interface RetentionCounts {
   tasks: number
   taskProgress: number
   escalations: number
+  events: number
 }
 
 export interface PruneScopeResult {

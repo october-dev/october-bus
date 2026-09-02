@@ -124,6 +124,25 @@ type TaskProgress struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+type BusEvent struct {
+	ID         string            `json:"id"`
+	ScopeID    string            `json:"scopeId"`
+	Type       string            `json:"type"`
+	SubjectID  string            `json:"subjectId"`
+	Revision   int64             `json:"revision"`
+	Attributes map[string]string `json:"attributes"`
+	CreatedAt  string            `json:"createdAt"`
+}
+
+type EventBatch struct {
+	ScopeID         string     `json:"scopeId"`
+	Events          []BusEvent `json:"events"`
+	NextRevision    int64      `json:"nextRevision"`
+	CurrentRevision int64      `json:"currentRevision"`
+	MinimumCursor   int64      `json:"minimumCursor"`
+	ResyncRequired  bool       `json:"resyncRequired"`
+}
+
 type StorageRecordSummary struct {
 	RecordType     string `json:"recordType"`
 	State          string `json:"state"`
@@ -149,6 +168,7 @@ type RetentionCounts struct {
 	Tasks        int64 `json:"tasks"`
 	TaskProgress int64 `json:"taskProgress"`
 	Escalations  int64 `json:"escalations"`
+	Events       int64 `json:"events"`
 }
 
 type PruneScopeResult struct {

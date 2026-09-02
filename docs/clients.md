@@ -7,7 +7,7 @@ October Bus currently ships a Go client in this module and a TypeScript client o
 Use the narrowest credential for each operation:
 
 - admin token for scope creation and daemon shutdown;
-- scope token for agent registration, peer links, project task management, storage controls, and human escalation resolution;
+- scope token for agent registration, peer links, project task management, event streams, storage controls, and human escalation resolution;
 - agent token for heartbeat, discovery, messages, tasks, and escalation creation.
 
 Keep admin and scope tokens outside model context. A managed session gives the harness only its execution-bound agent token.
@@ -34,6 +34,17 @@ messages, err := agent.PullInbox(ctx, 50, 25*time.Second)
 
 ownerTasks, err := owner.ListTasks(ctx, true)
 storage, err := owner.StorageSummary(ctx)
+events, err := owner.Events(ctx, lastRevision, 50, 25*time.Second)
+
+for batch, err := range owner.WatchEvents(ctx, lastRevision, 50) {
+    if err != nil {
+        return err
+    }
+    if batch.ResyncRequired {
+        break
+    }
+    lastRevision = batch.NextRevision
+}
 
 progress, err := agent.AddTaskProgress(ctx, taskID, bus.AddTaskProgressInput{
     Kind: "progress",
@@ -70,6 +81,12 @@ await session.setState('ready', true)
 const peers = await session.client.listPeers({ timeoutMs: 10_000 })
 const messages = await session.client.pullInbox(50, { waitMs: 25_000 })
 const readyTasks = await new OctoberBusScopeClient(address, scopeToken).listTasks({ ready: true })
+const owner = new OctoberBusScopeClient(address, scopeToken)
+
+for await (const batch of owner.watchEvents({ after: lastRevision })) {
+  if (batch.resyncRequired) break
+  lastRevision = batch.nextRevision
+}
 
 await session.client.addTaskProgress(taskId, {
   kind: 'progress',
@@ -77,7 +94,9 @@ await session.client.addTaskProgress(taskId, {
 })
 ```
 
-Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox reservation and pull operations also accept `waitMs` up to 25 seconds. The default request timeout is 30 seconds.
+Each TypeScript operation accepts an optional final `{ timeoutMs, signal }` argument. Inbox and event operations support bounded waits up to 25 seconds. The default request timeout is 30 seconds.
+
+Persist an event batch's `nextRevision` only after applying the whole batch. If `resyncRequired` is true, rebuild from the resource APIs before saving the returned cursor. Event envelopes contain state metadata but not message, task, progress, or escalation contents.
 
 Prefer bounded inbox waiting for efficient pull delivery. `pollInbox` provides an async iterator over repeated bounded waits. Use `withClaimedTask` to release a task if work or completion fails. Keep the managed session alive while holding a claim.
 

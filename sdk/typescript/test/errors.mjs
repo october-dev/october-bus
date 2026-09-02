@@ -5,6 +5,7 @@ import {
   BusError,
   OctoberBusAgentSession,
   OctoberBusClient,
+  OctoberBusScopeClient,
   newIdempotencyKey,
   pollInbox,
   requiredEnvironmentValue,
@@ -87,6 +88,10 @@ assert.equal(polled.done, false)
 assert.equal(polled.value[0].id, 'message_1')
 await inbox.return()
 await assert.rejects(() => pollInbox(pollingClient, { waitMs: 0 }).next(), /waitMs must be an integer between 1 and 25000/)
+await assert.rejects(
+  () => new OctoberBusScopeClient('not a url', 'token').watchEvents({ waitMs: 0 }).next(),
+  /waitMs must be an integer between 1 and 25000/
+)
 
 const server = createServer((_request, response) => {
   response.writeHead(502, { 'content-type': 'text/plain' })

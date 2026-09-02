@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion                = 4
+	schemaVersion                = 5
 	reservationTTL               = 30 * time.Second
 	messageBacklogCap            = 10000
 	activeTaskCap                = 5000
@@ -83,7 +83,9 @@ BEGIN IMMEDIATE;
 CREATE TABLE scopes (
   scope_id TEXT PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL
+	created_at INTEGER NOT NULL,
+	event_revision INTEGER NOT NULL DEFAULT 0,
+	event_floor_revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE agents (
   scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
@@ -188,7 +190,19 @@ CREATE TABLE escalations (
   FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
 );
 CREATE INDEX escalations_scope_status ON escalations(scope_id, status, created_at);
-PRAGMA user_version=4;
+CREATE TABLE events (
+	event_id TEXT PRIMARY KEY,
+	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+	revision INTEGER NOT NULL CHECK(revision>0),
+	event_type TEXT NOT NULL,
+	subject_id TEXT NOT NULL,
+	attributes_json TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	UNIQUE(scope_id, revision)
+);
+CREATE INDEX events_scope_revision ON events(scope_id, revision);
+CREATE INDEX events_scope_created ON events(scope_id, created_at);
+PRAGMA user_version=5;
 COMMIT;`)
 	return err
 }
@@ -324,9 +338,21 @@ ON CONFLICT(scope_id,agent_id) DO UPDATE SET
 	if err != nil {
 		return RegisterAgentResult{}, err
 	}
+	if err := appendEvent(ctx, tx, scopeID, "agent.registered", agentID, eventAttributes(
+		"executionId", executionID, "lifecycle", string(LifecycleStarting), "ready", "false", "leaseExpiresAt", instant(leaseExpiresAt),
+	), now); err != nil {
+		return RegisterAgentResult{}, err
+	}
 	for _, peer := range unique(input.ConnectTo) {
-		if err := linkAgents(ctx, tx, scopeID, agentID, peer, now); err != nil {
+		created, err := linkAgents(ctx, tx, scopeID, agentID, peer, now)
+		if err != nil {
 			return RegisterAgentResult{}, err
+		}
+		if created {
+			a, b := orderedPeers(agentID, peer)
+			if err := appendEvent(ctx, tx, scopeID, "link.created", a+":"+b, eventAttributes("leftAgent", a, "rightAgent", b), now); err != nil {
+				return RegisterAgentResult{}, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -389,18 +415,47 @@ func (s *Store) Agent(ctx context.Context, scopeID, agentID string) (Agent, erro
 	return agent, err
 }
 
-func (s *Store) Heartbeat(ctx context.Context, principal Principal, input HeartbeatInput) (Agent, error) {
+func (s *Store) Heartbeat(ctx context.Context, principal Principal, input HeartbeatInput) (Agent, bool, error) {
 	now := nowMillis()
-	result, err := s.db.ExecContext(ctx, `UPDATE agents SET lifecycle=?,ready=?,lease_expires_at=?,updated_at=? WHERE scope_id=? AND agent_id=? AND execution_id=?`,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Agent{}, false, err
+	}
+	defer tx.Rollback()
+	var previousLifecycle AgentLifecycle
+	var previousReady int
+	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,ready FROM agents WHERE scope_id=? AND agent_id=? AND execution_id=?`, principal.ScopeID, principal.AgentID, principal.ExecutionID).
+		Scan(&previousLifecycle, &previousReady); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Agent{}, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
+		}
+		return Agent{}, false, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agents SET lifecycle=?,ready=?,lease_expires_at=?,updated_at=? WHERE scope_id=? AND agent_id=? AND execution_id=?`,
 		input.Lifecycle, input.Ready, now+input.LeaseMS, now, principal.ScopeID, principal.AgentID, principal.ExecutionID)
 	if err != nil {
-		return Agent{}, err
+		return Agent{}, false, err
 	}
 	changed, _ := result.RowsAffected()
 	if changed != 1 {
-		return Agent{}, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
+		return Agent{}, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
 	}
-	return s.Agent(ctx, principal.ScopeID, principal.AgentID)
+	stateChanged := previousLifecycle != input.Lifecycle || (previousReady == 1) != input.Ready
+	if stateChanged {
+		if err := appendEvent(ctx, tx, principal.ScopeID, "agent.lifecycle_changed", principal.AgentID, eventAttributes(
+			"executionId", principal.ExecutionID, "lifecycle", string(input.Lifecycle), "ready", fmt.Sprintf("%t", input.Ready), "leaseExpiresAt", instant(now+input.LeaseMS),
+		), now); err != nil {
+			return Agent{}, false, err
+		}
+	}
+	agent, err := scanAgent(tx.QueryRowContext(ctx, `SELECT `+agentColumns+` FROM agents WHERE scope_id=? AND agent_id=?`, principal.ScopeID, principal.AgentID))
+	if err != nil {
+		return Agent{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Agent{}, false, err
+	}
+	return agent, stateChanged, nil
 }
 
 func (s *Store) ListAgents(ctx context.Context, scopeID string) ([]Agent, error) {
@@ -430,27 +485,47 @@ func orderedPeers(left, right string) (string, string) {
 func linkAgents(ctx context.Context, executor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, scopeID, left, right string, now int64) error {
+}, scopeID, left, right string, now int64) (bool, error) {
 	if left == right {
-		return Errorf(CodeInvalidArgument, "An agent cannot link to itself")
+		return false, Errorf(CodeInvalidArgument, "An agent cannot link to itself")
 	}
 	for _, id := range []string{left, right} {
 		var found int
 		err := executor.QueryRowContext(ctx, `SELECT 1 FROM agents WHERE scope_id=? AND agent_id=?`, scopeID, id).Scan(&found)
 		if errors.Is(err, sql.ErrNoRows) {
-			return Errorf(CodeNotFound, "Agent "+id+" was not found")
+			return false, Errorf(CodeNotFound, "Agent "+id+" was not found")
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 	a, b := orderedPeers(left, right)
-	_, err := executor.ExecContext(ctx, `INSERT OR IGNORE INTO peer_links(scope_id,left_agent,right_agent,created_at) VALUES(?,?,?,?)`, scopeID, a, b, now)
-	return err
+	result, err := executor.ExecContext(ctx, `INSERT OR IGNORE INTO peer_links(scope_id,left_agent,right_agent,created_at) VALUES(?,?,?,?)`, scopeID, a, b, now)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed == 1, err
 }
 
 func (s *Store) LinkAgents(ctx context.Context, scopeID, left, right string) error {
-	return linkAgents(ctx, s.db, scopeID, left, right, nowMillis())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := nowMillis()
+	created, err := linkAgents(ctx, tx, scopeID, left, right, now)
+	if err != nil {
+		return err
+	}
+	if created {
+		a, b := orderedPeers(left, right)
+		if err := appendEvent(ctx, tx, scopeID, "link.created", a+":"+b, eventAttributes("leftAgent", a, "rightAgent", b), now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListPeers(ctx context.Context, principal Principal) ([]Agent, error) {
@@ -521,11 +596,44 @@ func receiptFromMessage(message Message) DeliveryReceipt {
 	}
 }
 
-func expireMessages(ctx context.Context, query interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, scopeID string, now int64) error {
-	_, err := query.ExecContext(ctx, `UPDATE messages SET state='expired',reservation_id=NULL WHERE scope_id=? AND expires_at IS NOT NULL AND expires_at<=? AND state NOT IN ('acknowledged','expired')`, scopeID, now)
-	return err
+func expireMessages(ctx context.Context, tx *sql.Tx, scopeID string, now int64) error {
+	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_agent,to_agent,mode FROM messages WHERE scope_id=? AND expires_at IS NOT NULL AND expires_at<=? AND state NOT IN ('acknowledged','expired')`, scopeID, now)
+	if err != nil {
+		return err
+	}
+	type expiringMessage struct {
+		id, from, to string
+		mode         MessageMode
+	}
+	values := []expiringMessage{}
+	for rows.Next() {
+		var value expiringMessage
+		if err := rows.Scan(&value.id, &value.from, &value.to, &value.mode); err != nil {
+			rows.Close()
+			return err
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, value := range values {
+		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='expired',reservation_id=NULL WHERE message_id=? AND scope_id=? AND state NOT IN ('acknowledged','expired')`, value.id, scopeID)
+		if err != nil {
+			return err
+		}
+		changed, _ := result.RowsAffected()
+		if changed == 1 {
+			if err := appendEvent(ctx, tx, scopeID, "message.expired", value.id, eventAttributes(
+				"from", value.from, "to", value.to, "mode", string(value.mode), "state", string(DeliveryExpired),
+			), now); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func messageRequestHash(input SendMessageInput, mode MessageMode, contextJSON string) string {
@@ -597,6 +705,11 @@ func (s *Store) SendMessage(ctx context.Context, principal Principal, input Send
 	if err != nil {
 		return DeliveryReceipt{}, err
 	}
+	if err := appendEvent(ctx, tx, principal.ScopeID, "message.accepted", messageID, eventAttributes(
+		"from", principal.AgentID, "to", input.To, "mode", string(mode), "state", string(DeliveryQueued), "responseTo", input.ResponseTo,
+	), now); err != nil {
+		return DeliveryReceipt{}, err
+	}
 	if mode == MessageResponse {
 		if input.ResponseTo == "" {
 			return DeliveryReceipt{}, Errorf(CodeInvalidArgument, "responseTo is required for a response")
@@ -642,6 +755,11 @@ func (s *Store) SendMessage(ctx context.Context, principal Principal, input Send
 		if changed != 1 {
 			return DeliveryReceipt{}, Errorf(CodeConflict, "The request already has a response")
 		}
+		if err := appendEvent(ctx, tx, principal.ScopeID, "message.replied", input.ResponseTo, eventAttributes(
+			"responseMessageId", messageID, "from", input.To, "to", principal.AgentID,
+		), now); err != nil {
+			return DeliveryReceipt{}, err
+		}
 	}
 	message, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE message_id=?`, messageID))
 	if err != nil {
@@ -684,11 +802,44 @@ func (s *Store) Receipt(ctx context.Context, principal Principal, messageID stri
 }
 
 func releaseReservation(ctx context.Context, tx *sql.Tx, scopeID, agentID, reservationID string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT message_id,from_agent,to_agent,mode,CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END FROM messages WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved'`, reservationID, scopeID, agentID)
+	if err != nil {
+		return err
+	}
+	type releasedMessage struct {
+		id, from, to string
+		mode         MessageMode
+		state        DeliveryState
+	}
+	values := []releasedMessage{}
+	for rows.Next() {
+		var value releasedMessage
+		if err := rows.Scan(&value.id, &value.from, &value.to, &value.mode, &value.state); err != nil {
+			rows.Close()
+			return err
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
 	if _, err := tx.ExecContext(ctx, `UPDATE messages SET state=CASE WHEN delivered_at IS NULL THEN 'queued' ELSE 'delivered' END,reservation_id=NULL WHERE reservation_id=? AND scope_id=? AND to_agent=? AND state='reserved'`, reservationID, scopeID, agentID); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `DELETE FROM reservations WHERE reservation_id=? AND scope_id=? AND agent_id=?`, reservationID, scopeID, agentID)
-	return err
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reservations WHERE reservation_id=? AND scope_id=? AND agent_id=?`, reservationID, scopeID, agentID); err != nil {
+		return err
+	}
+	now := nowMillis()
+	for _, value := range values {
+		if err := appendEvent(ctx, tx, scopeID, "message.released", value.id, eventAttributes(
+			"from", value.from, "to", value.to, "mode", string(value.mode), "state", string(value.state),
+		), now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func requireCurrentExecution(ctx context.Context, tx *sql.Tx, principal Principal, now int64) error {
@@ -772,6 +923,11 @@ func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
 			messages[i].State = DeliveryReserved
+			if err := appendEvent(ctx, tx, principal.ScopeID, "message.reserved", messages[i].ID, eventAttributes(
+				"from", messages[i].From, "to", messages[i].To, "mode", string(messages[i].Mode), "state", string(DeliveryReserved),
+			), now); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -837,6 +993,13 @@ func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservatio
 	if _, err := tx.ExecContext(ctx, `DELETE FROM reservations WHERE reservation_id=?`, reservationID); err != nil {
 		return nil, err
 	}
+	for _, message := range messages {
+		if err := appendEvent(ctx, tx, principal.ScopeID, "message.delivered", message.ID, eventAttributes(
+			"from", message.From, "to", message.To, "mode", string(message.Mode), "state", string(DeliveryDelivered),
+		), deliveredAt); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -875,13 +1038,26 @@ func (s *Store) AcknowledgeMessages(ctx context.Context, principal Principal, me
 	}
 	var count int64
 	for _, messageID := range unique(messageIDs) {
+		now := nowMillis()
 		result, err := tx.ExecContext(ctx, `UPDATE messages SET state='acknowledged',acknowledged_at=? WHERE message_id=? AND scope_id=? AND to_agent=? AND state='delivered'`,
-			nowMillis(), messageID, principal.ScopeID, principal.AgentID)
+			now, messageID, principal.ScopeID, principal.AgentID)
 		if err != nil {
 			return 0, err
 		}
 		changed, _ := result.RowsAffected()
 		count += changed
+		if changed == 1 {
+			var from, to string
+			var mode MessageMode
+			if err := tx.QueryRowContext(ctx, `SELECT from_agent,to_agent,mode FROM messages WHERE message_id=?`, messageID).Scan(&from, &to, &mode); err != nil {
+				return 0, err
+			}
+			if err := appendEvent(ctx, tx, principal.ScopeID, "message.acknowledged", messageID, eventAttributes(
+				"from", from, "to", to, "mode", string(mode), "state", string(DeliveryAcknowledged),
+			), now); err != nil {
+				return 0, err
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -951,15 +1127,44 @@ func taskFrom(ctx context.Context, query interface {
 
 func releaseStaleTaskClaims(ctx context.Context, tx *sql.Tx, scopeID string) error {
 	now := nowMillis()
-	_, err := tx.ExecContext(ctx, `UPDATE tasks SET status='open',claimed_by=NULL,claimed_execution_id=NULL,updated_at=?
-WHERE scope_id=? AND status='claimed' AND NOT EXISTS (
+	rows, err := tx.QueryContext(ctx, `SELECT task_id,claimed_by FROM tasks WHERE scope_id=? AND status='claimed' AND NOT EXISTS (
   SELECT 1 FROM agents
   WHERE agents.scope_id=tasks.scope_id
     AND agents.agent_id=tasks.claimed_by
     AND agents.execution_id=tasks.claimed_execution_id
     AND agents.lease_expires_at>?
-)`, now, scopeID, now)
-	return err
+) ORDER BY task_id`, scopeID, now)
+	if err != nil {
+		return err
+	}
+	type staleTask struct{ id, claimedBy string }
+	stale := []staleTask{}
+	for rows.Next() {
+		var taskID, claimedBy string
+		if err := rows.Scan(&taskID, &claimedBy); err != nil {
+			rows.Close()
+			return err
+		}
+		stale = append(stale, staleTask{id: taskID, claimedBy: claimedBy})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, task := range stale {
+		result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='open',claimed_by=NULL,claimed_execution_id=NULL,updated_at=? WHERE scope_id=? AND task_id=? AND status='claimed'`, now, scopeID, task.id)
+		if err != nil {
+			return err
+		}
+		changed, _ := result.RowsAffected()
+		if changed == 1 {
+			if err := appendEvent(ctx, tx, scopeID, "task.released", task.id, eventAttributes("previousClaimedBy", task.claimedBy, "reason", "execution_expired", "status", "open"), now); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) AddTask(ctx context.Context, scopeID, createdBy string, input AddTaskInput) (Task, error) {
@@ -1000,6 +1205,9 @@ func (s *Store) AddTask(ctx context.Context, scopeID, createdBy string, input Ad
 	if err != nil {
 		return Task{}, err
 	}
+	if err := appendEvent(ctx, tx, scopeID, "task.created", taskID, eventAttributes("createdBy", createdBy, "status", "open"), now); err != nil {
+		return Task{}, err
+	}
 	task, err := taskFrom(ctx, tx, scopeID, taskID)
 	if err != nil {
 		return Task{}, err
@@ -1033,14 +1241,20 @@ func (s *Store) ClaimTask(ctx context.Context, principal Principal, taskID strin
 			return Task{}, Errorf(CodeConflict, "Task "+taskID+" is blocked by "+dependency)
 		}
 	}
+	now := nowMillis()
 	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='claimed',claimed_by=?,claimed_execution_id=?,updated_at=? WHERE task_id=? AND scope_id=? AND status='open'`,
-		principal.AgentID, principal.ExecutionID, nowMillis(), taskID, principal.ScopeID)
+		principal.AgentID, principal.ExecutionID, now, taskID, principal.ScopeID)
 	if err != nil {
 		return Task{}, err
 	}
 	changed, _ := result.RowsAffected()
 	if changed != 1 {
 		return Task{}, Errorf(CodeConflict, "Task "+taskID+" was claimed by another agent")
+	}
+	if err := appendEvent(ctx, tx, principal.ScopeID, "task.claimed", taskID, eventAttributes(
+		"claimedBy", principal.AgentID, "executionId", principal.ExecutionID, "status", "claimed",
+	), now); err != nil {
+		return Task{}, err
 	}
 	task, err = taskFrom(ctx, tx, principal.ScopeID, taskID)
 	if err != nil {
@@ -1053,8 +1267,14 @@ func (s *Store) ClaimTask(ctx context.Context, principal Principal, taskID strin
 }
 
 func (s *Store) CompleteTask(ctx context.Context, principal Principal, taskID, note string) (Task, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE tasks SET status='done',note=?,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
-		nullableString(note), nowMillis(), taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	now := nowMillis()
+	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='done',note=?,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
+		nullableString(note), now, taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1062,12 +1282,30 @@ func (s *Store) CompleteTask(ctx context.Context, principal Principal, taskID, n
 	if changed != 1 {
 		return Task{}, Errorf(CodeConflict, "Task "+taskID+" is not claimed by this agent")
 	}
-	return taskFrom(ctx, s.db, principal.ScopeID, taskID)
+	if err := appendEvent(ctx, tx, principal.ScopeID, "task.completed", taskID, eventAttributes(
+		"claimedBy", principal.AgentID, "executionId", principal.ExecutionID, "status", "done",
+	), now); err != nil {
+		return Task{}, err
+	}
+	task, err := taskFrom(ctx, tx, principal.ScopeID, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
 
 func (s *Store) ReleaseTask(ctx context.Context, principal Principal, taskID string) (Task, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE tasks SET status='open',claimed_by=NULL,claimed_execution_id=NULL,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
-		nowMillis(), taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	now := nowMillis()
+	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='open',claimed_by=NULL,claimed_execution_id=NULL,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
+		now, taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1075,7 +1313,19 @@ func (s *Store) ReleaseTask(ctx context.Context, principal Principal, taskID str
 	if changed != 1 {
 		return Task{}, Errorf(CodeConflict, "Task "+taskID+" is not claimed by this execution")
 	}
-	return taskFrom(ctx, s.db, principal.ScopeID, taskID)
+	if err := appendEvent(ctx, tx, principal.ScopeID, "task.released", taskID, eventAttributes(
+		"previousClaimedBy", principal.AgentID, "executionId", principal.ExecutionID, "reason", "released", "status", "open",
+	), now); err != nil {
+		return Task{}, err
+	}
+	task, err := taskFrom(ctx, tx, principal.ScopeID, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
 
 func (s *Store) ListTasks(ctx context.Context, scopeID string, readyOnly bool) ([]Task, error) {
@@ -1198,9 +1448,13 @@ func (s *Store) AskHuman(ctx context.Context, principal Principal, input AskHuma
 	if err != nil {
 		return HumanEscalation{}, err
 	}
+	now := nowMillis()
 	_, err = tx.ExecContext(ctx, `INSERT INTO escalations(escalation_id,scope_id,agent_id,question,options_json,status,answer,created_at,resolved_at) VALUES(?,?,?,?,?,'pending',NULL,?,NULL)`,
-		id, principal.ScopeID, principal.AgentID, input.Question, options, nowMillis())
+		id, principal.ScopeID, principal.AgentID, input.Question, options, now)
 	if err != nil {
+		return HumanEscalation{}, err
+	}
+	if err := appendEvent(ctx, tx, principal.ScopeID, "escalation.created", id, eventAttributes("agentId", principal.AgentID, "status", "pending"), now); err != nil {
 		return HumanEscalation{}, err
 	}
 	escalation, err := escalationFrom(ctx, tx, principal.ScopeID, id)
@@ -1235,8 +1489,14 @@ func (s *Store) ListEscalations(ctx context.Context, scopeID string) ([]HumanEsc
 }
 
 func (s *Store) ResolveEscalation(ctx context.Context, scopeID, escalationID, answer string) (HumanEscalation, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE escalations SET status='resolved',answer=?,resolved_at=? WHERE scope_id=? AND escalation_id=? AND status='pending'`,
-		answer, nowMillis(), scopeID, escalationID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return HumanEscalation{}, err
+	}
+	defer tx.Rollback()
+	now := nowMillis()
+	result, err := tx.ExecContext(ctx, `UPDATE escalations SET status='resolved',answer=?,resolved_at=? WHERE scope_id=? AND escalation_id=? AND status='pending'`,
+		answer, now, scopeID, escalationID)
 	if err != nil {
 		return HumanEscalation{}, err
 	}
@@ -1244,5 +1504,19 @@ func (s *Store) ResolveEscalation(ctx context.Context, scopeID, escalationID, an
 	if changed != 1 {
 		return HumanEscalation{}, Errorf(CodeConflict, "Escalation is not pending")
 	}
-	return escalationFrom(ctx, s.db, scopeID, escalationID)
+	var agentID string
+	if err := tx.QueryRowContext(ctx, `SELECT agent_id FROM escalations WHERE scope_id=? AND escalation_id=?`, scopeID, escalationID).Scan(&agentID); err != nil {
+		return HumanEscalation{}, err
+	}
+	if err := appendEvent(ctx, tx, scopeID, "escalation.resolved", escalationID, eventAttributes("agentId", agentID, "status", "resolved"), now); err != nil {
+		return HumanEscalation{}, err
+	}
+	escalation, err := escalationFrom(ctx, tx, scopeID, escalationID)
+	if err != nil {
+		return HumanEscalation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return HumanEscalation{}, err
+	}
+	return escalation, nil
 }

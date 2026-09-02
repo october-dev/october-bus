@@ -3,7 +3,9 @@ package bus
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -127,6 +129,9 @@ func (s *Server) newRouter() http.Handler {
 	)
 	registerRoute(router, "/v1/scope/storage/prune",
 		routeMethod{http.MethodPost, s.pruneScope},
+	)
+	registerRoute(router, "/v1/events",
+		routeMethod{http.MethodGet, s.events},
 	)
 	return router
 }
@@ -522,6 +527,55 @@ func (s *Server) pruneScope(response http.ResponseWriter, request *http.Request)
 		return err
 	}
 	result, err := s.runtime.PruneScope(request.Context(), token, input)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func queryInt64(request *http.Request, name string, defaultValue int64) (int64, error) {
+	value := request.URL.Query().Get(name)
+	if value == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, Errorf(CodeInvalidArgument, name+" must be an integer")
+	}
+	return parsed, nil
+}
+
+func (s *Server) events(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	after, err := queryInt64(request, "after", 0)
+	if err != nil {
+		return err
+	}
+	limitValue, err := queryInt64(request, "limit", defaultEventLimit)
+	if err != nil {
+		return err
+	}
+	waitMS, err := queryInt64(request, "waitMs", 0)
+	if err != nil {
+		return err
+	}
+	if limitValue < 1 || limitValue > maxEventLimit {
+		return Errorf(CodeInvalidArgument, "limit must be between 1 and 100")
+	}
+	if waitMS < 0 || waitMS > maxEventWaitMS {
+		return Errorf(CodeInvalidArgument, "waitMs must be between 0 and 25000")
+	}
+	parentContext := request.Context()
+	waitContext, cancel := s.inboxWaitContext(parentContext)
+	defer cancel()
+	result, err := s.runtime.Events(waitContext, token, after, int(limitValue), time.Duration(waitMS)*time.Millisecond)
+	if s.inboxWaitStopped(parentContext, err) {
+		result, err = s.runtime.Events(parentContext, token, after, int(limitValue), 0)
+	}
 	if err != nil {
 		return err
 	}

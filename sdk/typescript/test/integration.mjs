@@ -74,6 +74,20 @@ try {
   await reviewerSession.setState('ready', true)
   const planner = plannerSession.client
   const reviewer = reviewerSession.client
+  const initialEvents = await owner.events({ limit: 100 })
+  assert.equal(initialEvents.events.length > 0, true)
+  assert.equal(initialEvents.resyncRequired, false)
+  const eventIterator = owner.watchEvents({
+    after: initialEvents.nextRevision,
+    waitMs: 2_000,
+    timeoutMs: 3_000
+  })
+  const nextEvents = eventIterator.next()
+  await planner.heartbeat('working', true)
+  const eventResult = await nextEvents
+  assert.equal(eventResult.done, false)
+  assert.equal(eventResult.value.events.some((event) => event.type === 'agent.lifecycle_changed'), true)
+  await eventIterator.return()
   const peers = await planner.listPeers()
   assert.equal(peers.length, 1)
   assert.equal(peers[0].id, 'reviewer')
@@ -119,6 +133,7 @@ try {
   const pruned = await owner.pruneScope({ before, execute: true })
   assert.equal(pruned.dryRun, false)
   assert.equal(pruned.records.tasks, 1)
+  assert.equal((await owner.events({ after: 0 })).resyncRequired, true)
   await reviewerSession.close()
   await plannerSession.close()
   const agentsAfterClose = await owner.listAgents()

@@ -12,6 +12,7 @@ import type {
   CreateScopeInput,
   CreateScopeResult,
   DeliveryReceipt,
+  EventBatch,
   HumanEscalation,
   InboxReservation,
   PruneScopeInput,
@@ -44,6 +45,12 @@ export interface InboxReservationOptions extends OperationOptions {
 
 export interface ListTasksOptions extends OperationOptions {
   ready?: boolean
+}
+
+export interface EventOptions extends OperationOptions {
+  after?: number
+  limit?: number
+  waitMs?: number
 }
 
 async function request<T>(
@@ -180,6 +187,39 @@ export class OctoberBusScopeClient {
 
   pruneScope(input: PruneScopeInput, options?: OperationOptions): Promise<PruneScopeResult> {
     return request(this.address, this.scopeToken, 'POST', '/v1/scope/storage/prune', input, options)
+  }
+
+  events(options: EventOptions = {}): Promise<EventBatch> {
+    const { after = 0, limit = 50, waitMs = 0, ...operationOptions } = options
+    const query = new URLSearchParams({
+      after: String(after),
+      limit: String(limit),
+      waitMs: String(waitMs)
+    })
+    return request(this.address, this.scopeToken, 'GET', `/v1/events?${query}`, undefined, operationOptions)
+  }
+
+  async *watchEvents(options: EventOptions = {}): AsyncGenerator<EventBatch> {
+    const waitMs = options.waitMs ?? 25_000
+    if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > 25_000) {
+      throw new BusError('INVALID_ARGUMENT', 'waitMs must be an integer between 1 and 25000')
+    }
+    let after = options.after ?? 0
+    while (!options.signal?.aborted) {
+      let batch: EventBatch
+      try {
+        batch = await this.events({ ...options, after, waitMs })
+      } catch (error) {
+        if (options.signal?.aborted) return
+        throw error
+      }
+      if (batch.resyncRequired) {
+        yield batch
+        return
+      }
+      after = batch.nextRevision
+      if (batch.events.length > 0) yield batch
+    }
   }
 
   listEscalations(options?: OperationOptions): Promise<HumanEscalation[]> {

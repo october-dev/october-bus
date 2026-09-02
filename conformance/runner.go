@@ -400,6 +400,45 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		return result, err
 	}
 
+	if err := record.check("resumable-scope-events", func() error {
+		initial, err := owner.Events(ctx, 0, 100, 0)
+		if err != nil || initial.ResyncRequired || len(initial.Events) == 0 || initial.NextRevision != initial.CurrentRevision {
+			return fmt.Errorf("unexpected initial event batch: %#v, %v", initial, err)
+		}
+		for _, event := range initial.Events {
+			for _, value := range event.Attributes {
+				if value == "The retry path is correct" || value == "Proceed?" || value == "Reviewed" {
+					return fmt.Errorf("event exposed record content: %#v", event)
+				}
+			}
+		}
+		type eventResult struct {
+			batch bus.EventBatch
+			err   error
+		}
+		waiting := make(chan eventResult, 1)
+		go func() {
+			batch, err := owner.Events(ctx, initial.NextRevision, 100, 2*time.Second)
+			waiting <- eventResult{batch: batch, err: err}
+		}()
+		time.Sleep(50 * time.Millisecond)
+		if _, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleWorking, Ready: true, LeaseMS: 30000}); err != nil {
+			return err
+		}
+		select {
+		case value := <-waiting:
+			if value.err != nil || len(value.batch.Events) != 1 || value.batch.Events[0].Type != "agent.lifecycle_changed" {
+				return fmt.Errorf("unexpected waited event batch: %#v, %v", value.batch, value.err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		_, err = planner.Events(ctx, 0, 10, 0)
+		return requireCode(err, bus.CodeUnauthenticated)
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("storage-diagnostics-and-retention", func() error {
 		summary, err := owner.StorageSummary(ctx)
 		if err != nil || len(summary.Records) == 0 || summary.TotalEstimatedBytes == 0 {
@@ -420,6 +459,10 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 		executed, err := owner.PruneScope(ctx, bus.PruneScopeInput{Before: before, Execute: true})
 		if err != nil || executed.DryRun || executed.Records != dryRun.Records {
 			return fmt.Errorf("unexpected retention execution: %#v, %v", executed, err)
+		}
+		stale, err := owner.Events(ctx, 0, 100, 0)
+		if err != nil || !stale.ResyncRequired {
+			return fmt.Errorf("pruned event cursor did not require resync: %#v, %v", stale, err)
 		}
 		return nil
 	}); err != nil {

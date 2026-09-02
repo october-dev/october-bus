@@ -134,6 +134,26 @@ Explicit retention can remove only terminal records older than a caller-provided
 
 Retention MUST support a dry run and report exact record counts. The reference CLI requires `--yes` before deletion.
 
+## Scope events
+
+Scope authority MAY follow a durable event log to update external projections. Each event has an opaque ID and a scope-local, monotonically increasing revision. Clients resume by requesting events after the last revision they committed.
+
+Events describe state changes without carrying protected record content. Message bodies and context, task titles, descriptions and progress text, escalation questions and answers, and credentials MUST NOT appear in an event envelope.
+
+Protocol 0.1 defines these event types:
+
+- `agent.registered` and `agent.lifecycle_changed`
+- `link.created`
+- `message.accepted`, `message.replied`, `message.reserved`, `message.released`, `message.delivered`, `message.acknowledged`, and `message.expired`
+- `task.created`, `task.claimed`, `task.released`, `task.completed`, and `task.progress_added`
+- `escalation.created` and `escalation.resolved`
+
+Each listed transition event MUST be committed atomically with the transition it describes. Retrying an idempotent operation that made no new state change MUST NOT append another event. A heartbeat that only renews a lease does not append a lifecycle event.
+
+Implementations MAY retain a bounded event history. `minimumCursor` identifies the oldest cursor that can still produce a complete continuation. When retention removes revisions required by a cursor, the event API MUST return an explicit resync result instead of silently skipping history. The client then rebuilds from the resource APIs and resumes at the current revision.
+
+The reference runtime allows at most 128 concurrent event waits per scope credential and returns `BACKPRESSURE` above that limit. Waiting clients do not hold mutation locks or private in-memory event queues.
+
 ## Human escalation
 
 An agent MAY create an escalation with a question and either no options or two to four options. Creating an escalation does not grant the agent permission or answer the question.
@@ -145,7 +165,7 @@ Only scope authority resolves escalations. Agent authority can create and read e
 | Credential | Allowed operations |
 | --- | --- |
 | Admin token | Create a scope and request local daemon shutdown |
-| Scope token | Register and list agents, create peer links, add and list tasks, inspect and prune storage, list and resolve escalations |
+| Scope token | Register and list agents, create peer links, add and list tasks, follow scope events, inspect and prune storage, list and resolve escalations |
 | Agent token | Heartbeat, discover peers, message linked peers, use inboxes, coordinate tasks, create and read escalations |
 
 Tokens are bearer credentials. Implementations MUST compare them safely, MUST NOT log them, and MUST reject empty credentials. Agent tokens MUST stop working after lease expiry or execution replacement.

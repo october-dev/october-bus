@@ -36,6 +36,8 @@ FROM task_progress WHERE scope_id=? GROUP BY kind ORDER BY kind`},
 		{"escalation", `SELECT status,COUNT(*),COALESCE(SUM(length(CAST(question AS BLOB))+length(CAST(options_json AS BLOB))+COALESCE(length(CAST(answer AS BLOB)),0)),0),
 MIN(CASE status WHEN 'pending' THEN created_at ELSE resolved_at END)
 FROM escalations WHERE scope_id=? GROUP BY status ORDER BY status`},
+		{"event", `SELECT event_type,COUNT(*),COALESCE(SUM(length(CAST(event_type AS BLOB))+length(CAST(subject_id AS BLOB))+length(CAST(attributes_json AS BLOB))),0),MIN(created_at)
+FROM events WHERE scope_id=? GROUP BY event_type ORDER BY event_type`},
 	}
 	for _, query := range queries {
 		rows, err := tx.QueryContext(ctx, query.statement, scopeID)
@@ -217,6 +219,25 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
+	var currentRevision, currentFloor int64
+	if err := tx.QueryRowContext(ctx, `SELECT event_revision,event_floor_revision FROM scopes WHERE scope_id=?`, scopeID).Scan(&currentRevision, &currentFloor); err != nil {
+		return PruneScopeResult{}, err
+	}
+	var firstRetained sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MIN(revision) FROM events WHERE scope_id=? AND created_at>=?`, scopeID, before).Scan(&firstRetained); err != nil {
+		return PruneScopeResult{}, err
+	}
+	eventFloor := currentRevision
+	if firstRetained.Valid {
+		eventFloor = firstRetained.Int64 - 1
+	}
+	if eventFloor < currentFloor {
+		eventFloor = currentFloor
+	}
+	var eventCount int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE scope_id=? AND revision<=?`, scopeID, eventFloor).Scan(&eventCount); err != nil {
+		return PruneScopeResult{}, err
+	}
 	var taskProgressCount int64
 	for _, taskID := range tasks {
 		var count int64
@@ -228,7 +249,7 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 	result := PruneScopeResult{
 		ScopeID: scopeID, Before: time.UnixMilli(before).UTC().Format(time.RFC3339Nano), DryRun: !execute,
 		Records: RetentionCounts{
-			Messages: int64(len(messages)), Tasks: int64(len(tasks)), TaskProgress: taskProgressCount, Escalations: int64(len(escalations)),
+			Messages: int64(len(messages)), Tasks: int64(len(tasks)), TaskProgress: taskProgressCount, Escalations: int64(len(escalations)), Events: eventCount,
 		},
 	}
 	if execute {
@@ -255,6 +276,14 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 		}
 		for _, escalationID := range escalations {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM escalations WHERE scope_id=? AND escalation_id=?`, scopeID, escalationID); err != nil {
+				return PruneScopeResult{}, err
+			}
+		}
+		if eventCount > 0 {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE scope_id=? AND revision<=?`, scopeID, eventFloor); err != nil {
+				return PruneScopeResult{}, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE scopes SET event_floor_revision=MAX(event_floor_revision,?) WHERE scope_id=?`, eventFloor, scopeID); err != nil {
 				return PruneScopeResult{}, err
 			}
 		}

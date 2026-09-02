@@ -63,6 +63,7 @@ Failures use:
 | `POST` | `/v1/scope/escalations/{escalationId}/resolve` | Scope | Resolved escalation |
 | `GET` | `/v1/scope/storage` | Scope | Counts, estimated bytes, and oldest timestamps |
 | `POST` | `/v1/scope/storage/prune` | Scope | Dry-run or executed retention result |
+| `GET` | `/v1/events` | Scope | Resumable scope event batch |
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
@@ -70,6 +71,10 @@ Failures use:
 `GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
 
 `POST /v1/scope/storage/prune` requires an RFC 3339 `before` timestamp. Omitted or false `execute` performs a dry run. `execute=true` removes the reported terminal records in one transaction.
+
+`GET /v1/events?after=0&limit=50&waitMs=25000` returns events after the supplied scope revision. The limit is 1 through 100 and the bounded wait is 0 through 25000 milliseconds. The default cursor is 0, the default limit is 50, and the default wait returns immediately. Event envelopes contain identifiers and state metadata, not message bodies, task text, progress text, escalation questions, answers, or credentials.
+
+Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that can still produce a complete continuation. A batch with `resyncRequired: true` means retention removed events needed by the supplied cursor. The client must rebuild its projection from the resource APIs and resume from the returned `nextRevision`.
 
 Request and result shapes are defined in [protocol.schema.json](schemas/protocol.schema.json). Consumers can reference individual definitions with a fragment such as:
 

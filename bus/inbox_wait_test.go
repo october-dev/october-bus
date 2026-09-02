@@ -8,8 +8,8 @@ import (
 )
 
 func TestInboxSignalsWakeCurrentWaitersWithoutRetainingIdleAgents(t *testing.T) {
-	signals := newInboxSignals()
-	key := inboxSignalKey{scopeID: "scope", agentID: "agent"}
+	signals := newRuntimeSignals()
+	key := signalKey{scopeID: "scope", consumerID: "agent"}
 	signals.notify(key)
 	if len(signals.channels) != 0 {
 		t.Fatal("notification without waiters retained an idle agent")
@@ -24,6 +24,28 @@ func TestInboxSignalsWakeCurrentWaitersWithoutRetainingIdleAgents(t *testing.T) 
 	}
 	if len(signals.channels) != 0 {
 		t.Fatal("completed notification retained an idle agent")
+	}
+}
+
+func TestRuntimeSignalsEnforceWaiterLimit(t *testing.T) {
+	signals := newRuntimeSignals()
+	key := signalKey{scopeID: "scope"}
+	unsubscribes := make([]func(), 0, 2)
+	for range 2 {
+		_, unsubscribe, ok := signals.subscribeLimited(key, 2)
+		if !ok {
+			t.Fatal("waiter was rejected before the limit")
+		}
+		unsubscribes = append(unsubscribes, unsubscribe)
+	}
+	if _, _, ok := signals.subscribeLimited(key, 2); ok {
+		t.Fatal("waiter above the limit was accepted")
+	}
+	for _, unsubscribe := range unsubscribes {
+		unsubscribe()
+	}
+	if len(signals.channels) != 0 {
+		t.Fatal("released waiters retained a signal")
 	}
 }
 
@@ -151,7 +173,7 @@ func TestReserveInboxTimesOutWithoutReservation(t *testing.T) {
 	if elapsed := time.Since(started); elapsed < 25*time.Millisecond || elapsed > time.Second {
 		t.Fatalf("unexpected wait duration: %s", elapsed)
 	}
-	if len(agents.runtime.inboxSignals.channels) != 0 {
+	if len(agents.runtime.signals.channels) != 0 {
 		t.Fatal("timed-out wait retained an inbox subscription")
 	}
 }
@@ -175,7 +197,7 @@ func TestCanceledInboxWaitDoesNotConsumeLaterMessage(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("inbox wait did not stop after cancellation")
 	}
-	if len(agents.runtime.inboxSignals.channels) != 0 {
+	if len(agents.runtime.signals.channels) != 0 {
 		t.Fatal("canceled wait retained an inbox subscription")
 	}
 

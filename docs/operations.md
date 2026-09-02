@@ -88,7 +88,9 @@ Retention is explicit and keeps indefinite storage as the default. First run a d
 october-bus scope prune --before 2026-08-01T00:00:00Z
 ```
 
-Pass `--yes` to remove the reported records in one transaction. Only terminal messages, completed tasks, and resolved escalations can be removed. Requests and responses are removed together. Work with an outstanding delivery, reply, task, dependency, or human obligation is preserved.
+Pass `--yes` to remove the reported records in one transaction. Only terminal messages, completed tasks, resolved escalations, and old scope events can be removed. Requests and responses are removed together. Work with an outstanding delivery, reply, task, dependency, or human obligation is preserved.
+
+Pruning scope events can make an old event cursor incomplete. Event clients receive `resyncRequired` and must rebuild their projection from the resource APIs before continuing.
 
 Choose a cutoff older than the longest client retry window you support. Removing a message also removes its idempotency-key binding.
 

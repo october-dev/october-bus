@@ -9,11 +9,12 @@ const (
 	maxExpiryMS int64 = 30 * 24 * 60 * 60 * 1000
 	// Inbox waits stay below the server and default client timeout of 30 seconds.
 	maxInboxWaitMS int64 = 25 * 1000
+	maxEventWaitMS int64 = 25 * 1000
 )
 
 type Runtime struct {
-	store        *Store
-	inboxSignals *inboxSignals
+	store   *Store
+	signals *runtimeSignals
 }
 
 func Open(source string) (*Runtime, error) {
@@ -21,7 +22,7 @@ func Open(source string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{store: store, inboxSignals: newInboxSignals()}, nil
+	return &Runtime{store: store, signals: newRuntimeSignals()}, nil
 }
 
 func (r *Runtime) Close() error { return r.store.Close() }
@@ -64,7 +65,8 @@ func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input Re
 	}
 	result, err := r.store.RegisterAgent(ctx, scopeID, input)
 	if err == nil {
-		r.inboxSignals.notify(inboxSignalKey{scopeID: result.ScopeID, agentID: result.AgentID})
+		r.signals.notify(signalKey{scopeID: result.ScopeID, consumerID: result.AgentID})
+		r.notifyScope(result.ScopeID)
 	}
 	return result, err
 }
@@ -88,7 +90,11 @@ func (r *Runtime) LinkAgents(ctx context.Context, scopeToken, left, right string
 	if err := validateIdentity(right, "right", false); err != nil {
 		return err
 	}
-	return r.store.LinkAgents(ctx, scopeID, left, right)
+	err = r.store.LinkAgents(ctx, scopeID, left, right)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return err
 }
 
 func (r *Runtime) Principal(ctx context.Context, agentToken string) (Principal, error) {
@@ -110,7 +116,11 @@ func (r *Runtime) Heartbeat(ctx context.Context, agentToken string, input Heartb
 	if err != nil {
 		return Agent{}, err
 	}
-	return r.store.Heartbeat(ctx, principal, input)
+	result, changed, err := r.store.Heartbeat(ctx, principal, input)
+	if err == nil && changed {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) ListPeers(ctx context.Context, agentToken string) ([]Agent, error) {
@@ -152,7 +162,8 @@ func (r *Runtime) SendMessage(ctx context.Context, agentToken string, input Send
 	}
 	result, err := r.store.SendMessage(ctx, principal, input)
 	if err == nil {
-		r.inboxSignals.notify(inboxSignalKey{scopeID: principal.ScopeID, agentID: input.To})
+		r.signals.notify(signalKey{scopeID: principal.ScopeID, consumerID: input.To})
+		r.notifyScope(principal.ScopeID)
 	}
 	return result, err
 }
@@ -165,7 +176,11 @@ func (r *Runtime) Receipt(ctx context.Context, agentToken, messageID string) (De
 	if err := validateIdentity(messageID, "messageId", false); err != nil {
 		return DeliveryReceipt{}, err
 	}
-	return r.store.Receipt(ctx, principal, messageID)
+	result, err := r.store.Receipt(ctx, principal, messageID)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func normalizedInboxLimit(limit int) (int, error) {
@@ -194,18 +209,25 @@ func (r *Runtime) ReserveInbox(ctx context.Context, agentToken string, limit int
 		return nil, Errorf(CodeInvalidArgument, "waitMs must be between 0 and 25000")
 	}
 	if waitMS == 0 {
-		return r.store.ReserveInbox(ctx, principal, limit)
+		reservation, err := r.store.ReserveInbox(ctx, principal, limit)
+		if err == nil {
+			r.notifyScope(principal.ScopeID)
+		}
+		return reservation, err
 	}
 	deadline := time.Now().Add(time.Duration(waitMS) * time.Millisecond)
-	key := inboxSignalKey{scopeID: principal.ScopeID, agentID: principal.AgentID}
+	key := signalKey{scopeID: principal.ScopeID, consumerID: principal.AgentID}
 	for {
-		signal, unsubscribe := r.inboxSignals.subscribe(key)
+		signal, unsubscribe := r.signals.subscribe(key)
 		principal, err = r.Principal(ctx, agentToken)
 		if err != nil {
 			unsubscribe()
 			return nil, err
 		}
 		reservation, err := r.store.ReserveInbox(ctx, principal, limit)
+		if err == nil {
+			r.notifyScope(principal.ScopeID)
+		}
 		if err != nil || reservation != nil {
 			unsubscribe()
 			return reservation, err
@@ -268,7 +290,11 @@ func (r *Runtime) CommitInbox(ctx context.Context, agentToken, reservationID str
 	if err := validateIdentity(reservationID, "reservationId", false); err != nil {
 		return nil, err
 	}
-	return r.store.CommitInbox(ctx, principal, reservationID)
+	result, err := r.store.CommitInbox(ctx, principal, reservationID)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) ReleaseInbox(ctx context.Context, agentToken, reservationID string) error {
@@ -281,7 +307,8 @@ func (r *Runtime) ReleaseInbox(ctx context.Context, agentToken, reservationID st
 	}
 	err = r.store.ReleaseInbox(ctx, principal, reservationID)
 	if err == nil {
-		r.inboxSignals.notify(inboxSignalKey{scopeID: principal.ScopeID, agentID: principal.AgentID})
+		r.signals.notify(signalKey{scopeID: principal.ScopeID, consumerID: principal.AgentID})
+		r.notifyScope(principal.ScopeID)
 	}
 	return err
 }
@@ -299,7 +326,11 @@ func (r *Runtime) AcknowledgeMessages(ctx context.Context, agentToken string, me
 			return 0, err
 		}
 	}
-	return r.store.AcknowledgeMessages(ctx, principal, messageIDs)
+	count, err := r.store.AcknowledgeMessages(ctx, principal, messageIDs)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return count, err
 }
 
 func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskInput) (Task, error) {
@@ -321,7 +352,11 @@ func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskI
 			return Task{}, err
 		}
 	}
-	return r.store.AddTask(ctx, scopeID, createdBy, input)
+	result, err := r.store.AddTask(ctx, scopeID, createdBy, input)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) ClaimTask(ctx context.Context, agentToken, taskID string) (Task, error) {
@@ -332,7 +367,11 @@ func (r *Runtime) ClaimTask(ctx context.Context, agentToken, taskID string) (Tas
 	if err := validateIdentity(taskID, "taskId", false); err != nil {
 		return Task{}, err
 	}
-	return r.store.ClaimTask(ctx, principal, taskID)
+	result, err := r.store.ClaimTask(ctx, principal, taskID)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) ReleaseTask(ctx context.Context, agentToken, taskID string) (Task, error) {
@@ -343,7 +382,11 @@ func (r *Runtime) ReleaseTask(ctx context.Context, agentToken, taskID string) (T
 	if err := validateIdentity(taskID, "taskId", false); err != nil {
 		return Task{}, err
 	}
-	return r.store.ReleaseTask(ctx, principal, taskID)
+	result, err := r.store.ReleaseTask(ctx, principal, taskID)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) CompleteTask(ctx context.Context, agentToken, taskID, note string) (Task, error) {
@@ -357,7 +400,11 @@ func (r *Runtime) CompleteTask(ctx context.Context, agentToken, taskID, note str
 	if err := validateText(note, "note", 16384, true); err != nil {
 		return Task{}, err
 	}
-	return r.store.CompleteTask(ctx, principal, taskID, note)
+	result, err := r.store.CompleteTask(ctx, principal, taskID, note)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) AddTaskProgress(ctx context.Context, agentToken, taskID string, input AddTaskProgressInput) (TaskProgress, error) {
@@ -376,7 +423,11 @@ func (r *Runtime) AddTaskProgress(ctx context.Context, agentToken, taskID string
 	if err := validateText(input.Text, "text", 4000, false); err != nil {
 		return TaskProgress{}, err
 	}
-	return r.store.AddTaskProgress(ctx, principal, taskID, input)
+	result, err := r.store.AddTaskProgress(ctx, principal, taskID, input)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) ListTaskProgress(ctx context.Context, token, taskID string) ([]TaskProgress, error) {
@@ -395,7 +446,11 @@ func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) (
 	if err != nil {
 		return nil, err
 	}
-	return r.store.ListTasks(ctx, scopeID, readyOnly)
+	result, err := r.store.ListTasks(ctx, scopeID, readyOnly)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (StorageSummary, error) {
@@ -403,7 +458,11 @@ func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (Storag
 	if err != nil {
 		return StorageSummary{}, err
 	}
-	return r.store.StorageSummary(ctx, scopeID)
+	result, err := r.store.StorageSummary(ctx, scopeID)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input PruneScopeInput) (PruneScopeResult, error) {
@@ -415,7 +474,11 @@ func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input Prune
 	if err != nil {
 		return PruneScopeResult{}, Errorf(CodeInvalidArgument, "before must be an RFC 3339 timestamp")
 	}
-	return r.store.PruneScope(ctx, scopeID, before.UnixMilli(), input.Execute)
+	result, err := r.store.PruneScope(ctx, scopeID, before.UnixMilli(), input.Execute)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID, createdBy string, err error) {
@@ -446,7 +509,11 @@ func (r *Runtime) AskHuman(ctx context.Context, agentToken string, input AskHuma
 			return HumanEscalation{}, err
 		}
 	}
-	return r.store.AskHuman(ctx, principal, input)
+	result, err := r.store.AskHuman(ctx, principal, input)
+	if err == nil {
+		r.notifyScope(principal.ScopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) Escalation(ctx context.Context, agentToken, escalationID string) (HumanEscalation, error) {
@@ -479,7 +546,11 @@ func (r *Runtime) ResolveEscalation(ctx context.Context, scopeToken, escalationI
 	if err := validateText(answer, "answer", 16384, false); err != nil {
 		return HumanEscalation{}, err
 	}
-	return r.store.ResolveEscalation(ctx, scopeID, escalationID, answer)
+	result, err := r.store.ResolveEscalation(ctx, scopeID, escalationID, answer)
+	if err == nil {
+		r.notifyScope(scopeID)
+	}
+	return result, err
 }
 
 func (r *Runtime) NodeStatus(ctx context.Context, agentToken string) (NodeStatus, error) {

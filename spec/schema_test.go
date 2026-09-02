@@ -141,6 +141,14 @@ func TestProtocolSchemas(t *testing.T) {
 		"taskId": "task_123", "sequence": float64(1), "agentId": "reviewer", "executionId": "exec_123",
 		"kind": "blocker", "text": "Waiting for an API decision", "createdAt": "2026-08-30T00:00:01Z",
 	})
+	events := resolvedSchema(t, path, "eventBatch")
+	requireValid(t, events, map[string]any{
+		"scopeId": "scope", "events": []any{map[string]any{
+			"id": "evt_123", "scopeId": "scope", "type": "task.created", "subjectId": "task_123",
+			"revision": float64(1), "attributes": map[string]any{"status": "open"}, "createdAt": "2026-08-30T00:00:00Z",
+		}},
+		"nextRevision": float64(1), "currentRevision": float64(1), "minimumCursor": float64(0), "resyncRequired": false,
+	})
 
 	prune := resolvedSchema(t, path, "pruneScopeInput")
 	requireValid(t, prune, map[string]any{"before": "2026-08-01T00:00:00Z"})
@@ -281,6 +289,11 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 	if err != nil || len(progressHistory) != 1 {
 		t.Fatalf("unexpected progress history: %#v, %v", progressHistory, err)
 	}
+	events, err := owner.Events(ctx, 0, 100, 0)
+	if err != nil || len(events.Events) == 0 {
+		t.Fatalf("unexpected scope events: %#v, %v", events, err)
+	}
+	requireValid(t, resolvedSchema(t, path, "eventBatch"), jsonValue(t, events))
 	storage, err := owner.StorageSummary(ctx)
 	if err != nil {
 		t.Fatal(err)

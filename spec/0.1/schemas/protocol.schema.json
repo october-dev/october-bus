@@ -321,12 +321,46 @@
         }
       ]
     },
+    "busEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scopeId", "type", "subjectId", "revision", "attributes", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "type": { "type": "string", "minLength": 1 },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "createdAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "eventBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeId", "events", "nextRevision", "currentRevision", "minimumCursor", "resyncRequired"],
+      "properties": {
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "events": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/busEvent" }
+        },
+        "nextRevision": { "type": "integer", "minimum": 0 },
+        "currentRevision": { "type": "integer", "minimum": 0 },
+        "minimumCursor": { "type": "integer", "minimum": 0 },
+        "resyncRequired": { "type": "boolean" }
+      }
+    },
     "storageRecordSummary": {
       "type": "object",
       "additionalProperties": false,
       "required": ["recordType", "state", "count", "estimatedBytes"],
       "properties": {
-        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation"] },
+        "recordType": { "type": "string", "enum": ["message", "task", "taskProgress", "escalation", "event"] },
         "state": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 0 },
         "estimatedBytes": { "type": "integer", "minimum": 0 },
@@ -359,12 +393,13 @@
     "retentionCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["messages", "tasks", "taskProgress", "escalations"],
+      "required": ["messages", "tasks", "taskProgress", "escalations", "events"],
       "properties": {
         "messages": { "type": "integer", "minimum": 0 },
         "tasks": { "type": "integer", "minimum": 0 },
         "taskProgress": { "type": "integer", "minimum": 0 },
-        "escalations": { "type": "integer", "minimum": 0 }
+        "escalations": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 }
       }
     },
     "pruneScopeResult": {

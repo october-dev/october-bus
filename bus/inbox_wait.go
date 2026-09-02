@@ -2,31 +2,43 @@ package bus
 
 import "sync"
 
-type inboxSignalKey struct {
-	scopeID string
-	agentID string
+type signalKey struct {
+	scopeID    string
+	consumerID string
 }
 
-type inboxSignal struct {
+type runtimeSignal struct {
 	channel chan struct{}
 	waiters int
 }
 
-type inboxSignals struct {
+type runtimeSignals struct {
 	mu       sync.Mutex
-	channels map[inboxSignalKey]*inboxSignal
+	channels map[signalKey]*runtimeSignal
 }
 
-func newInboxSignals() *inboxSignals {
-	return &inboxSignals{channels: make(map[inboxSignalKey]*inboxSignal)}
+func newRuntimeSignals() *runtimeSignals {
+	return &runtimeSignals{channels: make(map[signalKey]*runtimeSignal)}
 }
 
-func (signals *inboxSignals) subscribe(key inboxSignalKey) (<-chan struct{}, func()) {
+func (signals *runtimeSignals) subscribe(key signalKey) (<-chan struct{}, func()) {
+	channel, unsubscribe, _ := signals.subscribeLimited(key, 0)
+	return channel, unsubscribe
+}
+
+func (signals *runtimeSignals) subscribeLimited(key signalKey, limit int) (<-chan struct{}, func(), bool) {
 	signals.mu.Lock()
 	signal := signals.channels[key]
 	if signal == nil {
-		signal = &inboxSignal{channel: make(chan struct{})}
+		signal = &runtimeSignal{channel: make(chan struct{})}
 		signals.channels[key] = signal
+	}
+	if limit > 0 && signal.waiters >= limit {
+		if signal.waiters == 0 {
+			delete(signals.channels, key)
+		}
+		signals.mu.Unlock()
+		return nil, func() {}, false
 	}
 	signal.waiters++
 	signals.mu.Unlock()
@@ -44,10 +56,10 @@ func (signals *inboxSignals) subscribe(key inboxSignalKey) (<-chan struct{}, fun
 				delete(signals.channels, key)
 			}
 		})
-	}
+	}, true
 }
 
-func (signals *inboxSignals) notify(key inboxSignalKey) {
+func (signals *runtimeSignals) notify(key signalKey) {
 	signals.mu.Lock()
 	defer signals.mu.Unlock()
 	if signal := signals.channels[key]; signal != nil {

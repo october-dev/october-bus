@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"time"
@@ -176,6 +177,44 @@ func (c Client) StorageSummary(ctx context.Context) (StorageSummary, error) {
 
 func (c Client) PruneScope(ctx context.Context, input PruneScopeInput) (PruneScopeResult, error) {
 	return request[PruneScopeResult](ctx, c, http.MethodPost, "/v1/scope/storage/prune", input)
+}
+
+func (c Client) Events(ctx context.Context, after int64, limit int, wait time.Duration) (EventBatch, error) {
+	if limit == 0 {
+		limit = defaultEventLimit
+	}
+	waitMS := wait.Milliseconds()
+	if wait > 0 && waitMS == 0 {
+		waitMS = 1
+	}
+	query := url.Values{}
+	query.Set("after", fmt.Sprintf("%d", after))
+	query.Set("limit", fmt.Sprintf("%d", limit))
+	query.Set("waitMs", fmt.Sprintf("%d", waitMS))
+	return request[EventBatch](ctx, c, http.MethodGet, "/v1/events?"+query.Encode(), nil)
+}
+
+func (c Client) WatchEvents(ctx context.Context, after int64, limit int) iter.Seq2[EventBatch, error] {
+	return func(yield func(EventBatch, error) bool) {
+		for ctx.Err() == nil {
+			batch, err := c.Events(ctx, after, limit, 25*time.Second)
+			if err != nil {
+				yield(EventBatch{}, err)
+				return
+			}
+			if batch.ResyncRequired {
+				yield(batch, nil)
+				return
+			}
+			after = batch.NextRevision
+			if len(batch.Events) == 0 {
+				continue
+			}
+			if !yield(batch, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (c Client) ClaimTask(ctx context.Context, taskID string) (Task, error) {
