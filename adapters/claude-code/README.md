@@ -1,6 +1,6 @@
 # Claude Code adapter
 
-Status: early integration, not yet conformance-verified.
+Status: verified with Claude Code 2.1.251 on macOS arm64. Other versions and platforms remain unverified.
 
 Start October Bus, then create a scope. The MCP configuration launches the stdio bridge inside the managed agent execution.
 
