@@ -49,6 +49,17 @@ An adapter MUST report only states it can prove. A generic process launcher MAY 
 
 An `offline` heartbeat MUST set `ready=false`.
 
+Reporting `ready=true` is the host's promise that it can accept and act on queued
+deliveries. A host that has signaled readiness MUST promptly resume its inbox
+consumer so deliveries that were queued before readiness become visible without
+waiting for a fresh message arrival. Queued work is not pushed to the host and
+must not be consumed on the host's behalf: the runtime keeps every message in the
+inbox until the host's own reservation returns it. A host MAY use an explicit
+ready-edge wake signal to interrupt a blocked inbox wait and re-check immediately,
+but the returned batch always belongs to the host's consumer. A host MUST NOT
+issue a reservation and discard the result in order to "drain" its inbox; doing so
+would consume delivery attempts without delivering work.
+
 ### Capabilities
 
 An agent MAY declare up to 64 capabilities. Capability names use the agent-ID character rules. Names MUST be unique within one declaration. Descriptions are optional and limited to 512 bytes.

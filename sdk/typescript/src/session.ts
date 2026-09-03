@@ -21,7 +21,16 @@ export interface AgentSessionOptions {
 export interface InboxPollingOptions {
   limit?: number
   waitMs?: number
+  /** Aborting this signal terminates the polling loop entirely. */
   signal?: AbortSignal
+  /**
+   * An optional wake signal (or getter for one) whose abort interrupts the
+   * current inbox wait and immediately re-polls, without terminating the loop.
+   * Wire this to an {@link OctoberBusAgentSession}'s `wake` so a ready
+   * transition causes the host's own consumer loop to resume promptly and
+   * pick up queued deliveries. The host owns every returned batch.
+   */
+  wake?: AbortSignal | (() => AbortSignal | undefined)
 }
 
 export interface ClaimedTaskResult<T> {
@@ -56,6 +65,18 @@ export class OctoberBusAgentSession {
   private resolveDone!: () => void
   private closed = false
   private sessionError: unknown
+  private wakeController: AbortController = new AbortController()
+
+  /**
+   * A wake signal that fires on every false->true ready transition. Wire it to
+   * {@link pollInbox} (`wake: session.wake`) so a host reporting ready=true
+   * promptly resumes its own inbox loop and picks up queued deliveries. The
+   * signal is replaced after each transition, so callers should read `wake`
+   * per polling iteration (or pass it as a getter to `pollInbox`).
+   */
+  get wake(): AbortSignal {
+    return this.wakeController.signal
+  }
 
   private constructor(options: AgentSessionOptions, registration: RegisterAgentResult) {
     this.registration = registration
@@ -108,9 +129,22 @@ export class OctoberBusAgentSession {
   async setState(lifecycle: AgentLifecycle, ready: boolean): Promise<Agent> {
     if (this.closed) throw new Error('agent session is closed')
     if (lifecycle === 'offline' && ready) throw new Error('offline agents cannot be ready')
+    // The heartbeat runs first and internal state is only committed once it
+    // succeeds. If it fails, `this.ready` still reflects the previous state,
+    // so a later retry of the same transition still sees the false->true edge
+    // and fires the wake signal again.
+    const agent = await this.client.heartbeat(lifecycle, ready, this.leaseMs)
+    const becameReady = ready && !this.ready
     this.lifecycle = lifecycle
     this.ready = ready
-    return this.client.heartbeat(lifecycle, ready, this.leaseMs)
+    if (becameReady) {
+      // Signal the host's own consumer loop (via pollInbox's `wake`) so it
+      // resumes immediately and owns the queued deliveries. Nothing is pulled
+      // or discarded here: the host keeps every returned batch.
+      this.wakeController.abort()
+      this.wakeController = new AbortController()
+    }
+    return agent
   }
 
   async close(): Promise<void> {
@@ -158,14 +192,22 @@ export async function* pollInbox(
     throw new Error('waitMs must be an integer between 1 and 25000')
   }
   while (!options.signal?.aborted) {
+    const wake = typeof options.wake === 'function' ? options.wake() : options.wake
+    const signals =
+      options.signal !== undefined || wake !== undefined
+        ? AbortSignal.any([options.signal, wake].filter((s): s is AbortSignal => s !== undefined))
+        : undefined
     let messages: BusMessage[]
     try {
       messages = await client.pullInbox(limit, {
         waitMs,
-        ...(options.signal === undefined ? {} : { signal: options.signal })
+        ...(signals === undefined ? {} : { signal: signals })
       })
     } catch (error) {
       if (options.signal?.aborted) return
+      // A wake fired mid-wait: interrupt the wait and re-poll immediately so
+      // the host's own loop picks up queued deliveries. This is not a failure.
+      if (wake?.aborted) continue
       throw error
     }
     if (messages.length > 0) yield messages
