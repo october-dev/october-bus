@@ -302,6 +302,96 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 		return result, err
 	}
 
+	if err := record.check("drain-on-ready", func() error {
+		// Register a host-controlled execution: no StartAgentSession heartbeat
+		// loop, so nothing marks it ready until this check flips the ready edge.
+		// The adapter under test (an independent process bridged over stdio MCP)
+		// is the entity whose inbox loop must resume on that transition.
+		drainReg, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{
+			ID: "drain-host", DisplayName: "Drain Host", LeaseMS: 30000,
+		})
+		if err != nil {
+			return err
+		}
+		if err := owner.LinkAgents(ctx, "controller", "drain-host"); err != nil {
+			return err
+		}
+		drainAdapter, err := connectAdapter(ctx, options, scope.ScopeToken, drainReg)
+		if err != nil {
+			return err
+		}
+		logs = append(logs, drainAdapter.stderr)
+		defer func() { _ = drainAdapter.close() }()
+
+		// While the host is NOT ready, block its inbox loop in a long waitMs
+		// reserve. The reservation is adapter-managed: check_inbox performs
+		// ReserveInbox then CommitInbox inside the adapter-under-test's runtime,
+		// so this check never issues a reservation of its own.
+		type inboxOutcome struct {
+			messages []bus.Message
+			err      error
+		}
+		inboxDone := make(chan inboxOutcome, 1)
+		go func() {
+			inbox, err := callTool[struct {
+				Messages []bus.Message `json:"messages"`
+			}](ctx, drainAdapter.session, "check_inbox", map[string]any{"limit": 10, "waitMs": 8000})
+			inboxDone <- inboxOutcome{messages: inbox.Messages, err: err}
+		}()
+		// Let the reserve actually subscribe before anything else runs.
+		time.Sleep(50 * time.Millisecond)
+
+		// Queue a delivery while the host is NOT ready and its loop is blocked.
+		queued, err := controller.SendMessage(ctx, bus.SendMessageInput{
+			To: "drain-host", Body: "queued while not ready",
+		})
+		if err != nil {
+			return err
+		}
+
+		// Ready edge: ready=false -> true must cause the adapter's inbox loop to
+		// resume and drain the queued delivery. Without the ready-edge wake the
+		// loop would not resume on its own; the reservation would only surface at
+		// waitMs expiry (or via a fresh enqueue), so this must not wait that long.
+		drain := bus.Client{Address: options.Address, Token: drainReg.AgentToken}
+		if _, err := drain.Heartbeat(ctx, bus.HeartbeatInput{
+			Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000,
+		}); err != nil {
+			return err
+		}
+
+		// The blocked adapter-managed reserve must return exactly the queued
+		// delivery, and promptly. The observation window is far shorter than the
+		// 8s waitMs budget, so this fails if the loop did not resume on the ready
+		// transition and was left to wait out its budget.
+		select {
+		case got := <-inboxDone:
+			if got.err != nil {
+				return got.err
+			}
+			if len(got.messages) != 1 || got.messages[0].ID != queued.MessageID {
+				return fmt.Errorf("ready edge did not drain the queued delivery: %#v", got.messages)
+			}
+		case <-time.After(2 * time.Second):
+			return errors.New("adapter inbox loop did not resume within 2s of the ready edge")
+		}
+
+		// The adapter already committed its reservation inside check_inbox.
+		// Acknowledge exactly one delivery through the adapter.
+		acknowledged, err := callTool[map[string]int64](ctx, drainAdapter.session, "acknowledge_messages", map[string]any{
+			"messageIds": []string{queued.MessageID},
+		})
+		if err != nil {
+			return err
+		}
+		if acknowledged["acknowledged"] != 1 {
+			return fmt.Errorf("expected exactly one acknowledgement, got %#v", acknowledged)
+		}
+		return nil
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("exact-peer-discovery", func() error {
 		peers, err := callTool[struct {
 			Peers []bus.Agent `json:"peers"`
