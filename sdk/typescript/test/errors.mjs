@@ -93,6 +93,97 @@ await assert.rejects(
   /waitMs must be an integer between 1 and 25000/
 )
 
+// A controllable inbox client whose pullInbox blocks until its signal aborts or
+// a queued batch is available. Mirrors the server-side bounded wait.
+function makeInboxClient(batches) {
+  const state = {
+    polls: 0,
+    wakeAborts: 0,
+    queue: batches
+  }
+  const client = {
+    async pullInbox(limit, options) {
+      state.polls += 1
+      const signal = options.signal
+      if (signal?.aborted) state.wakeAborts += 1
+      return new Promise((resolve) => {
+        const tryResolve = () => {
+          if (state.queue.length > 0) {
+            resolve(state.queue.shift())
+            return true
+          }
+          return false
+        }
+        if (tryResolve()) return
+        const onAbort = () => {
+          signal?.removeEventListener('abort', onAbort)
+          if (signal?.aborted) state.wakeAborts += 1
+          resolve([])
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    }
+  }
+  return { client, state }
+}
+
+// Ready-edge wake regression: a wake signal interrupts the current inbox wait and
+// re-polls immediately; it does NOT terminate the loop. Only the termination
+// signal ends polling. The host owns every returned batch (none are discarded).
+{
+  const { client, state } = makeInboxClient([])
+  const wake = new AbortController()
+  const stop = new AbortController()
+  const inbox = pollInbox(client, { waitMs: 25_000, signal: stop.signal, wake: wake.signal })
+  const first = inbox.next()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(state.wakeAborts, 0, 'no wake before the ready edge')
+  // A delivery queues while the host is blocked in waitMs, then the ready edge
+  // (false->true) fires. The wake interrupts the wait so the queued delivery is
+  // picked up immediately, not after the full waitMs.
+  state.queue.push([{ id: 'queued_before_ready' }])
+  wake.abort()
+  const result = await first
+  assert.equal(result.done, false)
+  assert.equal(result.value[0].id, 'queued_before_ready')
+  assert.equal(state.wakeAborts >= 1, true, 'wake interrupted the inbox wait')
+  // The loop continues after a wake (it did not terminate).
+  assert.equal(state.polls >= 2, true, 'wake caused an immediate re-poll')
+  stop.abort()
+  await inbox.return()
+}
+
+// Concurrent polling: two independent pollInbox loops, each with its own wake
+// signal, re-poll independently without cross-talk or termination.
+{
+  const { client: clientA, state: stateA } = makeInboxClient([])
+  const { client: clientB, state: stateB } = makeInboxClient([])
+  const wakeA = new AbortController()
+  const wakeB = new AbortController()
+  const stopA = new AbortController()
+  const stopB = new AbortController()
+  const loopA = pollInbox(clientA, { waitMs: 25_000, signal: stopA.signal, wake: wakeA.signal })
+  const loopB = pollInbox(clientB, { waitMs: 25_000, signal: stopB.signal, wake: wakeB.signal })
+  const nextA = loopA.next()
+  const nextB = loopB.next()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(stateA.wakeAborts, 0)
+  assert.equal(stateB.wakeAborts, 0)
+  stateA.queue.push([{ id: 'a_1' }])
+  wakeA.abort()
+  assert.deepEqual((await nextA).value, [{ id: 'a_1' }])
+  assert.equal(stateA.wakeAborts >= 1, true)
+  assert.equal(stateB.wakeAborts, 0, 'loop B was not woken by loop A')
+  stateB.queue.push([{ id: 'b_1' }])
+  wakeB.abort()
+  assert.deepEqual((await nextB).value, [{ id: 'b_1' }])
+  assert.equal(stateB.wakeAborts >= 1, true)
+  stopA.abort()
+  stopB.abort()
+  await loopA.return()
+  await loopB.return()
+}
+
 const server = createServer((_request, response) => {
   response.writeHead(502, { 'content-type': 'text/plain' })
   response.end('upstream unavailable')
