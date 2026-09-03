@@ -29,6 +29,7 @@ func TestPortableScopeArchiveRoundTripAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireAgentReady(t, source.runtime, source.reviewerToken)
 	reservation, err := source.runtime.ReserveInbox(ctx, source.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected reservation: %#v, %v", reservation, err)

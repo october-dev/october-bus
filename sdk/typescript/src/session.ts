@@ -24,13 +24,13 @@ export interface InboxPollingOptions {
   /** Aborting this signal terminates the polling loop entirely. */
   signal?: AbortSignal
   /**
-   * An optional wake signal (or getter for one) whose abort interrupts the
-   * current inbox wait and immediately re-polls, without terminating the loop.
-   * Wire this to an {@link OctoberBusAgentSession}'s `wake` so a ready
-   * transition causes the host's own consumer loop to resume promptly and
-   * pick up queued deliveries. The host owns every returned batch.
+   * Accepted for API compatibility. The server wakes the blocked reserve on a
+   * ready edge (see {@link OctoberBusAgentSession}), so a ready host's own
+   * consumer loop resumes promptly and picks up queued deliveries without the
+   * client aborting the long-poll. The host owns every returned batch; nothing
+   * is reserved-and-dropped here.
    */
-  wake?: AbortSignal | (() => AbortSignal | undefined)
+  wake?: () => AbortSignal | undefined
 }
 
 export interface ClaimedTaskResult<T> {
@@ -191,26 +191,30 @@ export async function* pollInbox(
   if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > 25_000) {
     throw new Error('waitMs must be an integer between 1 and 25000')
   }
-  while (!options.signal?.aborted) {
-    const wake = typeof options.wake === 'function' ? options.wake() : options.wake
-    const signals =
-      options.signal !== undefined || wake !== undefined
-        ? AbortSignal.any([options.signal, wake].filter((s): s is AbortSignal => s !== undefined))
-        : undefined
+  const terminal = options.signal
+  // The server wakes the blocked reserve on the ready edge (Runtime.Heartbeat
+  // notifies the per-agent signal that ReserveInbox waits on), so a ready host
+  // receives its queued deliveries promptly without the client aborting the
+  // long-poll. Aborting the pull here would race the server's prompt response
+  // and orphan an already-committed reservation, so the in-flight pull is NOT
+  // cancelled on `wake` — the server delivers through it. `wake` is accepted
+  // for API compatibility and is redundant with the server-side mechanism.
+  while (!terminal?.aborted) {
     let messages: BusMessage[]
     try {
       messages = await client.pullInbox(limit, {
         waitMs,
-        ...(signals === undefined ? {} : { signal: signals })
+        ...(terminal === undefined ? {} : { signal: terminal })
       })
     } catch (error) {
-      if (options.signal?.aborted) return
-      // A wake fired mid-wait: interrupt the wait and re-poll immediately so
-      // the host's own loop picks up queued deliveries. This is not a failure.
-      if (wake?.aborted) continue
+      if (terminal?.aborted) return // terminal abort: stop
       throw error
     }
+    // pullInbox has already committed any returned batch. Deliver it before
+    // honoring the terminal abort so an abort racing the response cannot drop
+    // mail.
     if (messages.length > 0) yield messages
+    if (terminal?.aborted) return
   }
 }
 

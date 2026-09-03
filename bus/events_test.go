@@ -27,6 +27,7 @@ func TestScopeEventsAreOrderedAndDoNotContainRecordBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil {
 		t.Fatalf("unexpected reservation: %#v, %v", reservation, err)

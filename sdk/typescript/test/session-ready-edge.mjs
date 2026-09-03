@@ -82,6 +82,7 @@ try {
   // the queued delivery is picked up promptly (not after the full waitMs).
   const inbox = pollInbox(session.client, { waitMs: 25_000, wake: () => session.wake })
   const first = inbox.next()
+  const wakeBeforeReady = session.wake
   // Give the loop time to block inside its first waitMs reserve.
   await new Promise((resolve) => setTimeout(resolve, 200))
   const startedAt = Date.now()
@@ -93,10 +94,18 @@ try {
   assert.equal(Date.now() - startedAt < 3_000, true, `ready-edge wake should resume promptly, took ${Date.now() - startedAt}ms`)
   assert.equal(await session.client.acknowledgeMessages([receipt.messageId]), 1)
   await inbox.return()
+  // The successful false->true edge aborted the old wake signal and replaced it
+  // with a live one, so a subsequent ready transition can wake the loop again.
+  assert.equal(wakeBeforeReady.aborted, true, 'old wake signal must abort on the ready edge')
+  assert.notEqual(session.wake, wakeBeforeReady, 'a successful ready edge must rotate the wake signal')
 
-  // Heartbeat failure ordering: setState must NOT commit ready or fire the wake
-  // signal when the heartbeat fails. It must reject. (The session's background
-  // heartbeat timer may then close the session, which is fine after this point.)
+  // Heartbeat failure ordering: a failed setState heartbeat must NOT commit
+  // ready locally and must NOT fire the wake signal. The local state stays at
+  // the previous value so the same false->true edge can be retried, and no
+  // consumer wakes prematurely.
+  const oldWake = session.wake
+  // (The background heartbeat timer may then close the session, which is fine
+  // after this point.)
   child.kill('SIGTERM')
   await Promise.race([
     new Promise((resolve) => child.once('exit', resolve)),
@@ -112,6 +121,7 @@ try {
       return true
     }
   )
+  assert.equal(oldWake.aborted, false, 'a failed heartbeat must not fire the wake signal')
 } finally {
   await session?.close().catch(() => {})
   if (child.exitCode === null) child.kill('SIGKILL')

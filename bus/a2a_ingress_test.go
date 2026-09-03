@@ -49,6 +49,7 @@ func TestA2ASendMessageCreatesDurableBusRequest(t *testing.T) {
 		t.Fatalf("unexpected A2A task: %#v", result)
 	}
 
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	reservation, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil || len(reservation.Messages) != 1 {
 		t.Fatalf("unexpected inbox: %#v, %v", reservation, err)
@@ -99,6 +100,7 @@ func TestA2ASendMessageEnforcesAuthenticationVersionAndContent(t *testing.T) {
 		t.Fatalf("unsupported task lookup error = %v", err)
 	}
 
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation != nil {
 		t.Fatalf("rejected requests created work: %#v, %v", reservation, err)

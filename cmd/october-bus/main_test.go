@@ -108,6 +108,9 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 	}
 	callMCPBridgeTool(t, ctx, session, "list_peers", map[string]any{})
 	callMCPBridgeTool(t, ctx, session, "message_peer", map[string]any{"peer": "receiver", "message": "Forwarded over stdio"})
+	if _, err := (bus.Client{Address: address, Token: receiverToken}).Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000}); err != nil {
+		t.Fatalf("ready receiver: %v", err)
+	}
 	messages, err := (bus.Client{Address: address, Token: receiverToken}).PullInbox(ctx, 10, 0)
 	if err != nil || len(messages) != 1 || messages[0].Body != "Forwarded over stdio" {
 		t.Fatalf("unexpected forwarded message: %#v, %v", messages, err)
@@ -367,6 +370,9 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	}
 	if initial.State != bus.DeliveryQueued {
 		t.Fatalf("expected initial state queued, got %q", initial.State)
+	}
+	if _, err := receiver.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000}); err != nil {
+		t.Fatalf("ready receiver: %v", err)
 	}
 	inbox, err := receiver.PullInbox(ctx, 10, 0)
 	if err != nil {

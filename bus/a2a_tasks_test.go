@@ -71,6 +71,7 @@ func TestA2ATaskTracksBusDeliveryAndResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
 	if err != nil || reservation == nil || len(reservation.Messages) != 1 {
 		t.Fatalf("unexpected inbox: %#v, %v", reservation, err)
