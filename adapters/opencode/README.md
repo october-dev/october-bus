@@ -1,6 +1,6 @@
 # OpenCode adapter
 
-Status: early integration, not yet conformance-verified.
+Status: verified with OpenCode 1.18.25 on macOS arm64. Other versions and platforms remain unverified.
 
 Start October Bus, then create a scope. Set `OPENCODE_CONFIG` to the example or merge its `mcp` entry into the project's OpenCode configuration. It launches the stdio bridge inside the managed agent execution.
 
