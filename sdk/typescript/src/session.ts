@@ -21,7 +21,16 @@ export interface AgentSessionOptions {
 export interface InboxPollingOptions {
   limit?: number
   waitMs?: number
+  /** Aborting this signal terminates the polling loop entirely. */
   signal?: AbortSignal
+  /**
+   * Accepted for API compatibility. The server wakes the blocked reserve on a
+   * ready edge (see {@link OctoberBusAgentSession}), so a ready host's own
+   * consumer loop resumes promptly and picks up queued deliveries without the
+   * client aborting the long-poll. The host owns every returned batch; nothing
+   * is reserved-and-dropped here.
+   */
+  wake?: () => AbortSignal | undefined
 }
 
 export interface ClaimedTaskResult<T> {
@@ -56,6 +65,18 @@ export class OctoberBusAgentSession {
   private resolveDone!: () => void
   private closed = false
   private sessionError: unknown
+  private wakeController: AbortController = new AbortController()
+
+  /**
+   * A wake signal that fires on every false->true ready transition. Wire it to
+   * {@link pollInbox} (`wake: session.wake`) so a host reporting ready=true
+   * promptly resumes its own inbox loop and picks up queued deliveries. The
+   * signal is replaced after each transition, so callers should read `wake`
+   * per polling iteration (or pass it as a getter to `pollInbox`).
+   */
+  get wake(): AbortSignal {
+    return this.wakeController.signal
+  }
 
   private constructor(options: AgentSessionOptions, registration: RegisterAgentResult) {
     this.registration = registration
@@ -108,9 +129,22 @@ export class OctoberBusAgentSession {
   async setState(lifecycle: AgentLifecycle, ready: boolean): Promise<Agent> {
     if (this.closed) throw new Error('agent session is closed')
     if (lifecycle === 'offline' && ready) throw new Error('offline agents cannot be ready')
+    // The heartbeat runs first and internal state is only committed once it
+    // succeeds. If it fails, `this.ready` still reflects the previous state,
+    // so a later retry of the same transition still sees the false->true edge
+    // and fires the wake signal again.
+    const agent = await this.client.heartbeat(lifecycle, ready, this.leaseMs)
+    const becameReady = ready && !this.ready
     this.lifecycle = lifecycle
     this.ready = ready
-    return this.client.heartbeat(lifecycle, ready, this.leaseMs)
+    if (becameReady) {
+      // Signal the host's own consumer loop (via pollInbox's `wake`) so it
+      // resumes immediately and owns the queued deliveries. Nothing is pulled
+      // or discarded here: the host keeps every returned batch.
+      this.wakeController.abort()
+      this.wakeController = new AbortController()
+    }
+    return agent
   }
 
   async close(): Promise<void> {
@@ -157,18 +191,30 @@ export async function* pollInbox(
   if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > 25_000) {
     throw new Error('waitMs must be an integer between 1 and 25000')
   }
-  while (!options.signal?.aborted) {
+  const terminal = options.signal
+  // The server wakes the blocked reserve on the ready edge (Runtime.Heartbeat
+  // notifies the per-agent signal that ReserveInbox waits on), so a ready host
+  // receives its queued deliveries promptly without the client aborting the
+  // long-poll. Aborting the pull here would race the server's prompt response
+  // and orphan an already-committed reservation, so the in-flight pull is NOT
+  // cancelled on `wake` — the server delivers through it. `wake` is accepted
+  // for API compatibility and is redundant with the server-side mechanism.
+  while (!terminal?.aborted) {
     let messages: BusMessage[]
     try {
       messages = await client.pullInbox(limit, {
         waitMs,
-        ...(options.signal === undefined ? {} : { signal: options.signal })
+        ...(terminal === undefined ? {} : { signal: terminal })
       })
     } catch (error) {
-      if (options.signal?.aborted) return
+      if (terminal?.aborted) return // terminal abort: stop
       throw error
     }
+    // pullInbox has already committed any returned batch. Deliver it before
+    // honoring the terminal abort so an abort racing the response cannot drop
+    // mail.
     if (messages.length > 0) yield messages
+    if (terminal?.aborted) return
   }
 }
 

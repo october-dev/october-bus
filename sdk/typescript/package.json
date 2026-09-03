@@ -65,7 +65,8 @@
     "prepublishOnly": "npm run typecheck && npm run build && npm run test:errors",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:errors": "node test/errors.mjs",
-    "test:integration": "node test/integration.mjs"
+    "test:integration": "node test/integration.mjs",
+    "test:ready-edge": "node test/session-ready-edge.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

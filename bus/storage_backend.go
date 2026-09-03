@@ -16,7 +16,7 @@ type storageBackend interface {
 	RegisterAgent(context.Context, string, RegisterAgentInput) (RegisterAgentResult, error)
 	AuthenticateAgent(context.Context, string) (Principal, error)
 	Agent(context.Context, string, string) (Agent, error)
-	Heartbeat(context.Context, Principal, HeartbeatInput) (Agent, bool, error)
+	Heartbeat(context.Context, Principal, HeartbeatInput) (Agent, bool, bool, error)
 	ListAgents(context.Context, string) ([]Agent, error)
 	LinkAgents(context.Context, string, string, string) error
 	ListPeers(context.Context, Principal) ([]Agent, error)

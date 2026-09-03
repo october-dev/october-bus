@@ -32,6 +32,7 @@ const (
 type Principal struct {
 	AgentIdentity
 	LeaseExpiresAt int64 `json:"-"`
+	Ready          bool  `json:"-"`
 }
 
 type Store struct {
@@ -470,8 +471,9 @@ ON CONFLICT(scope_id,agent_id) DO UPDATE SET
 func (s *Store) AuthenticateAgent(ctx context.Context, supplied string) (Principal, error) {
 	hash := tokenDigest(supplied)
 	var principal Principal
-	err := s.db.QueryRowContext(ctx, `SELECT scope_id,agent_id,execution_id,lease_expires_at FROM agents WHERE token_hash=?`, hash).
-		Scan(&principal.ScopeID, &principal.AgentID, &principal.ExecutionID, &principal.LeaseExpiresAt)
+	var ready int
+	err := s.db.QueryRowContext(ctx, `SELECT scope_id,agent_id,execution_id,lease_expires_at,ready FROM agents WHERE token_hash=?`, hash).
+		Scan(&principal.ScopeID, &principal.AgentID, &principal.ExecutionID, &principal.LeaseExpiresAt, &ready)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Principal{}, Errorf(CodeUnauthenticated, "Invalid agent token")
 	}
@@ -481,6 +483,7 @@ func (s *Store) AuthenticateAgent(ctx context.Context, supplied string) (Princip
 	if principal.LeaseExpiresAt <= nowMillis() {
 		return Principal{}, Errorf(CodeUnauthenticated, "Agent execution lease has expired")
 	}
+	principal.Ready = ready == 1
 	return principal, nil
 }
 
@@ -518,11 +521,11 @@ func (s *Store) Agent(ctx context.Context, scopeID, agentID string) (Agent, erro
 	return agent, err
 }
 
-func (s *Store) Heartbeat(ctx context.Context, principal Principal, input HeartbeatInput) (Agent, bool, error) {
+func (s *Store) Heartbeat(ctx context.Context, principal Principal, input HeartbeatInput) (Agent, bool, bool, error) {
 	now := nowMillis()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Agent{}, false, err
+		return Agent{}, false, false, err
 	}
 	defer tx.Rollback()
 	var previousLifecycle AgentLifecycle
@@ -530,35 +533,36 @@ func (s *Store) Heartbeat(ctx context.Context, principal Principal, input Heartb
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,ready FROM agents WHERE scope_id=? AND agent_id=? AND execution_id=?`, principal.ScopeID, principal.AgentID, principal.ExecutionID).
 		Scan(&previousLifecycle, &previousReady); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return Agent{}, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
+			return Agent{}, false, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
 		}
-		return Agent{}, false, err
+		return Agent{}, false, false, err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE agents SET lifecycle=?,ready=?,lease_expires_at=?,updated_at=? WHERE scope_id=? AND agent_id=? AND execution_id=?`,
 		input.Lifecycle, input.Ready, now+input.LeaseMS, now, principal.ScopeID, principal.AgentID, principal.ExecutionID)
 	if err != nil {
-		return Agent{}, false, err
+		return Agent{}, false, false, err
 	}
 	changed, _ := result.RowsAffected()
 	if changed != 1 {
-		return Agent{}, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
+		return Agent{}, false, false, Errorf(CodeUnauthenticated, "Agent execution has been replaced")
 	}
 	stateChanged := previousLifecycle != input.Lifecycle || (previousReady == 1) != input.Ready
+	becameReady := previousReady == 0 && input.Ready
 	if stateChanged {
 		if err := appendEvent(ctx, tx, principal.ScopeID, "agent.lifecycle_changed", principal.AgentID, eventAttributes(
 			"executionId", principal.ExecutionID, "lifecycle", string(input.Lifecycle), "ready", fmt.Sprintf("%t", input.Ready), "leaseExpiresAt", instant(now+input.LeaseMS),
 		), now); err != nil {
-			return Agent{}, false, err
+			return Agent{}, false, false, err
 		}
 	}
 	agent, err := scanAgent(tx.QueryRowContext(ctx, `SELECT `+agentColumns+` FROM agents WHERE scope_id=? AND agent_id=?`, principal.ScopeID, principal.AgentID))
 	if err != nil {
-		return Agent{}, false, err
+		return Agent{}, false, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Agent{}, false, err
+		return Agent{}, false, false, err
 	}
-	return agent, stateChanged, nil
+	return agent, stateChanged, becameReady, nil
 }
 
 func (s *Store) ListAgents(ctx context.Context, scopeID string) ([]Agent, error) {

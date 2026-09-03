@@ -415,6 +415,9 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireValid(t, resolvedSchema(t, path, "deliveryReceipt"), jsonValue(t, receipt))
+	if _, err := reviewer.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true}); err != nil {
+		t.Fatal(err)
+	}
 	messages, err := reviewer.PullInbox(ctx, 10, 0)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("unexpected messages: %#v, %v", messages, err)

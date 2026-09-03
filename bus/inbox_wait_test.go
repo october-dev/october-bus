@@ -54,6 +54,7 @@ func TestReserveInboxWakesForDurableMessage(t *testing.T) {
 	defer agents.runtime.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 
 	result := make(chan *InboxReservation, 1)
 	failure := make(chan error, 1)
@@ -86,6 +87,7 @@ func TestReserveInboxWakesForDurableMessage(t *testing.T) {
 func TestInboxWaitDoesNotMissConcurrentSend(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	for index := 0; index < 25; index++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		result := make(chan *InboxReservation, 1)
@@ -132,6 +134,7 @@ func TestInboxWaitDoesNotMissConcurrentSend(t *testing.T) {
 func TestCommitInboxDoesNotWakeConcurrentWaiter(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	if _, err := agents.runtime.SendMessage(context.Background(), agents.plannerToken, SendMessageInput{To: "reviewer", Body: "Process once"}); err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +184,7 @@ func TestReserveInboxTimesOutWithoutReservation(t *testing.T) {
 func TestCanceledInboxWaitDoesNotConsumeLaterMessage(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	ctx, cancel := context.WithCancel(context.Background())
 	failure := make(chan error, 1)
 	go func() {
@@ -251,6 +255,7 @@ func TestInboxWaitRechecksAtLeaseExpiry(t *testing.T) {
 func TestInboxWaitRechecksWhenReservationExpires(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
+	requireAgentReady(t, agents.runtime, agents.reviewerToken)
 	receipt, err := agents.runtime.SendMessage(context.Background(), agents.plannerToken, SendMessageInput{To: "reviewer", Body: "Redeliver"})
 	if err != nil {
 		t.Fatal(err)
@@ -308,5 +313,113 @@ func TestServerStopCancelsInboxWait(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("server stop did not cancel inbox wait")
+	}
+}
+
+// waitForSignalWaiter polls runtime.signals until the given per-agent key has
+// exactly one active waiter, or the deadline elapses.
+func waitForSignalWaiter(t *testing.T, runtime *Runtime, key signalKey, deadline time.Time) {
+	t.Helper()
+	for {
+		runtime.signals.mu.Lock()
+		signal := runtime.signals.channels[key]
+		waiting := signal != nil && signal.waiters == 1
+		runtime.signals.mu.Unlock()
+		if waiting {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiter for %+v did not subscribe within deadline", key)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestReserveInboxGatesOnReadiness verifies the readiness invariant: a
+// reservation is only admitted once the principal is ready=true, a false->true
+// heartbeat wakes the blocked waiter immediately (not after its waitMs
+// budget), and no reservation is created while the host is not ready. This
+// fails ungated code at the second barrier (it delivers before ready) and fails
+// gated-but-no-ready-wake code at the post-heartbeat 200ms bound.
+func TestReserveInboxGatesOnReadiness(t *testing.T) {
+	agents := setupAgents(t, ":memory:")
+	defer agents.runtime.Close()
+	ctx := context.Background()
+
+	gated, err := agents.runtime.RegisterAgent(ctx, agents.scope.ScopeToken, RegisterAgentInput{
+		ID: "gated-reviewer", DisplayName: "Gated Reviewer", ConnectTo: []string{"planner"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// gated-reviewer is intentionally never heartbeated: its persisted ready
+	// stays false, so no reservation may be admitted on its behalf.
+
+	waitContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	outcome := make(chan struct {
+		reservation *InboxReservation
+		err         error
+	}, 1)
+	go func() {
+		reservation, err := agents.runtime.ReserveInbox(waitContext, gated.AgentToken, 10, 2000)
+		outcome <- struct {
+			reservation *InboxReservation
+			err         error
+		}{reservation: reservation, err: err}
+	}()
+
+	key := signalKey{scopeID: agents.scope.ScopeID, consumerID: "gated-reviewer"}
+	barrier := time.Now().Add(500 * time.Millisecond)
+	waitForSignalWaiter(t, agents.runtime, key, barrier)
+	select {
+	case result := <-outcome:
+		t.Fatalf("not-ready reservation returned before any message: %#v, %v", result.reservation, result.err)
+	default:
+	}
+
+	// Enqueue while still not ready. Ungated code would be resumed by this
+	// enqueue and deliver before readiness; gated code must re-subscribe and
+	// keep waiting.
+	receipt, err := agents.runtime.SendMessage(ctx, agents.plannerToken, SendMessageInput{To: "gated-reviewer", Body: "Queued before ready"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier = time.Now().Add(500 * time.Millisecond)
+	waitForSignalWaiter(t, agents.runtime, key, barrier)
+	select {
+	case result := <-outcome:
+		t.Fatalf("pre-ready delivery by ungated code: %#v, %v", result.reservation, result.err)
+	default:
+	}
+
+	// Now signal readiness. The blocked waiter must wake and reserve promptly,
+	// well below its 2000ms wait budget.
+	if _, err := agents.runtime.Heartbeat(ctx, gated.AgentToken, HeartbeatInput{
+		Lifecycle: LifecycleReady, Ready: true, LeaseMS: 30000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-outcome:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.reservation == nil || len(result.reservation.Messages) != 1 || result.reservation.Messages[0].ID != receipt.MessageID {
+			t.Fatalf("ready reservation did not return the exact queued message: %#v", result.reservation)
+		}
+		messages, err := agents.runtime.CommitInbox(ctx, gated.AgentToken, result.reservation.ID)
+		if err != nil || len(messages) != 1 || messages[0].ID != receipt.MessageID {
+			t.Fatalf("ready reservation did not commit the exact message: %#v, %v", messages, err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ready heartbeat did not wake the blocked reservation within 200ms (no ready-edge wake)")
+	}
+
+	agents.runtime.signals.mu.Lock()
+	signal := agents.runtime.signals.channels[key]
+	agents.runtime.signals.mu.Unlock()
+	if signal != nil {
+		t.Fatal("completed reservation retained an inbox subscription")
 	}
 }
