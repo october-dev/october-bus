@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "harnessFamily": "Claude Code",
+  "harnessVersion": "2.1.251",
+  "adapterId": "claude-code-mcp",
+  "adapterVersion": "0.1.0",
+  "protocolVersion": "0.1",
+  "runtimeVersion": "dev",
+  "operatingSystem": "macos",
+  "architecture": "arm64",
+  "profile": "mcp-adapter",
+  "result": "passed",
+  "resultDigest": "sha256:7f8fa87f76541c477e79462840908cfa13075394954775672f15f3d452b523d9",
+  "verifiedAt": "2026-09-03T16:37:59Z",
+  "repositoryCommit": "7e3df6e8af49ab87930af4e98e3175c5be39189e",
+  "verificationMode": "assisted",
+  "limitations": [
+    "Pull-only delivery",
+    "Process reachability does not prove model readiness",
+    "Verified only on macOS arm64"
+  ]
+}
