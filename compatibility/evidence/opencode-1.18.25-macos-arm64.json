@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "harnessFamily": "OpenCode",
+  "harnessVersion": "1.18.25",
+  "adapterId": "opencode-mcp",
+  "adapterVersion": "0.1.0",
+  "protocolVersion": "0.1",
+  "runtimeVersion": "dev",
+  "operatingSystem": "macos",
+  "architecture": "arm64",
+  "profile": "mcp-adapter",
+  "result": "passed",
+  "resultDigest": "sha256:b01fdc518621da79321dac9bde6be7857f7cc367700b4892971c5fb4b42871a2",
+  "verifiedAt": "2026-09-03T16:36:59Z",
+  "repositoryCommit": "ac6c380b897b4d5bb1a8dcd61e621ac6c0c43870",
+  "verificationMode": "assisted",
+  "limitations": [
+    "Pull-only delivery",
+    "Process reachability does not prove model readiness",
+    "Verified only on macOS arm64"
+  ]
+}
