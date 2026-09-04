@@ -32,6 +32,8 @@ Failures use:
 }
 ```
 
+The `GET /health`, `GET /health/live`, and `GET /health/ready` endpoints are the exception to the success envelope: they return their `Health` or `Liveness` object directly so process supervisors and simple health checkers can read them without parsing an envelope. Every other route follows the envelope above.
+
 ## Routes
 
 | Method | Route | Authority | Result |
@@ -44,7 +46,7 @@ Failures use:
 | `POST` | `/v1/admin/scopes/import` | Admin | Imported scope and one-time scope token |
 | `POST` | `/v1/scopes` | Admin | New scope ID and scope token |
 | `POST` | `/v1/agents` | Scope | New execution identity, lease, and agent token |
-| `GET` | `/v1/agents` | Scope | Agents in the scope |
+| `GET` | `/v1/agents` | Scope | Agents in the scope (an array under `result`) |
 | `POST` | `/v1/links` | Scope | Symmetric peer link |
 | `PATCH` | `/v1/me/heartbeat` | Agent | Renewed presence |
 | `GET` | `/v1/peers` | Agent | Linked peers |
@@ -98,7 +100,7 @@ Failures use:
 
 `/health/live` returns HTTP 200 while the server process can answer requests. `/health` and `/health/ready` return HTTP 200 only when the runtime can reach its storage backend. An unavailable backend returns HTTP 503 with `status: not_ready`. Health responses expose the backend name and availability, never its address or credentials.
 
-`POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
+`POST /v1/agents` returns `201 Created`. `POST /v1/messages` returns `202 Accepted`. All other successful `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes return `200 OK` unless noted otherwise. `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 
 `GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
 
@@ -119,6 +121,8 @@ Agent Card publications are absent by default. A scope owner publishes one regis
 `POST /outputs/{streamId}/values` accepts `contentType`, `value`, and an optional URI reference. Agent credentials require an explicit publisher grant. Scoped output credentials require `publish` permission. `GET /outputs/{streamId}/values?after=0&limit=50` returns ordered values after the cursor. The limit is 1 through 100. Clients use `nextSequence` as their next cursor and rebuild from the latest value when `resyncRequired` is true.
 
 Output credentials are bearer credentials and MUST be sent in the `Authorization` header. Credentials in query strings are not accepted. Browser CORS policy is deployment configuration rather than part of the protocol.
+
+`POST /v1/links` accepts `{"left": "<agentId>", "right": "<agentId>"}`. `POST /v1/messages/ack` accepts `{"messageIds": ["..."]}` and returns `{"ok": true, "result": {"acknowledged": <count>}}`.
 
 Scope export and import use the archive rules in [archives.md](archives.md). Export rejects a scope with an active agent execution. Import validates and applies the full archive in one transaction. A successful retry returns `imported=false` and does not return the original one-time scope token again.
 
