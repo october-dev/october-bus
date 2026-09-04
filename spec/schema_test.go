@@ -97,6 +97,12 @@ func TestProtocolSchemas(t *testing.T) {
 	requireInvalid(t, register, map[string]any{"id": "bad id", "displayName": "Reviewer"})
 	requireInvalid(t, register, map[string]any{"displayName": "Reviewer", "unknown": true})
 
+	link := resolvedSchema(t, path, "linkAgentsInput")
+	requireValid(t, link, map[string]any{"left": "planner", "right": "reviewer"})
+	requireInvalid(t, link, map[string]any{"left": "planner"})
+	requireInvalid(t, link, map[string]any{"left": "bad id", "right": "reviewer"})
+	requireInvalid(t, link, map[string]any{"left": "planner", "right": "reviewer", "unknown": true})
+
 	send := resolvedSchema(t, path, "sendMessageInput")
 	requireValid(t, send, map[string]any{
 		"to": "reviewer", "body": "Review this", "mode": "request",
@@ -111,6 +117,25 @@ func TestProtocolSchemas(t *testing.T) {
 	requireInvalid(t, send, map[string]any{
 		"to": "planner", "body": "Unexpected correlation", "mode": "notify", "responseTo": "msg_123",
 	})
+
+	acknowledgeInput := resolvedSchema(t, path, "acknowledgeMessagesInput")
+	requireValid(t, acknowledgeInput, map[string]any{"messageIds": []any{"msg_123"}})
+	requireValid(t, acknowledgeInput, map[string]any{})
+	requireValid(t, acknowledgeInput, map[string]any{"messageIds": []any{}})
+	tooManyMessageIDs := make([]any, 101)
+	for index := range tooManyMessageIDs {
+		tooManyMessageIDs[index] = "msg_123"
+	}
+	requireInvalid(t, acknowledgeInput, map[string]any{"messageIds": tooManyMessageIDs})
+	requireInvalid(t, acknowledgeInput, map[string]any{"messageIds": []any{"bad id"}})
+	requireInvalid(t, acknowledgeInput, map[string]any{"messageIds": []any{}, "unknown": true})
+
+	acknowledgeResult := resolvedSchema(t, path, "acknowledgeMessagesResult")
+	requireValid(t, acknowledgeResult, map[string]any{"acknowledged": float64(0)})
+	requireInvalid(t, acknowledgeResult, map[string]any{})
+	requireInvalid(t, acknowledgeResult, map[string]any{"acknowledged": float64(-1)})
+	requireInvalid(t, acknowledgeResult, map[string]any{"acknowledged": 1.5})
+	requireInvalid(t, acknowledgeResult, map[string]any{"acknowledged": float64(0), "unknown": true})
 
 	reserve := resolvedSchema(t, path, "reserveInboxInput")
 	requireValid(t, reserve, map[string]any{"limit": float64(50), "waitMs": float64(25000)})
@@ -420,6 +445,34 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 		t.Fatalf("unexpected messages: %#v, %v", messages, err)
 	}
 	requireValid(t, resolvedSchema(t, path, "message"), jsonValue(t, messages[0]))
+	acknowledgeSchema := resolvedSchema(t, path, "acknowledgeMessagesResult")
+	acknowledge := func(expected float64) {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, address+"/v1/messages/ack", strings.NewReader(`{"messageIds":["`+messages[0].ID+`"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+reviewerRegistration.AgentToken)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envelope struct {
+			OK     bool           `json:"ok"`
+			Result map[string]any `json:"result"`
+		}
+		decodeErr := json.NewDecoder(response.Body).Decode(&envelope)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || decodeErr != nil || !envelope.OK {
+			t.Fatalf("unexpected acknowledgement response: HTTP %d, %#v, %v", response.StatusCode, envelope, decodeErr)
+		}
+		requireValid(t, acknowledgeSchema, envelope.Result)
+		if envelope.Result["acknowledged"] != expected {
+			t.Fatalf("acknowledged = %#v, want %v", envelope.Result["acknowledged"], expected)
+		}
+	}
+	acknowledge(1)
+	acknowledge(0)
 	task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Review"})
 	if err != nil {
 		t.Fatal(err)

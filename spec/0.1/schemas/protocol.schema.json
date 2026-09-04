@@ -178,6 +178,15 @@
         "updatedAt": { "$ref": "#/$defs/instant" }
       }
     },
+    "linkAgentsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "right"],
+      "properties": {
+        "left": { "$ref": "#/$defs/identifier" },
+        "right": { "$ref": "#/$defs/identifier" }
+      }
+    },
     "sendMessageInput": {
       "type": "object",
       "additionalProperties": false,
@@ -246,6 +255,25 @@
         "acknowledgedAt": { "$ref": "#/$defs/instant" },
         "repliedAt": { "$ref": "#/$defs/instant" },
         "responseMessageId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "acknowledgeMessagesInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "messageIds": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    },
+    "acknowledgeMessagesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acknowledged"],
+      "properties": {
+        "acknowledged": { "type": "integer", "minimum": 0 }
       }
     },
     "reserveInboxInput": {

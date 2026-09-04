@@ -32,6 +32,10 @@ Failures use:
 }
 ```
 
+For Bus API responses using the envelope above, success status codes are route-specific. Clients MUST treat any 2xx response with `ok: true` as success and MUST NOT require HTTP 200. The reference runtime returns HTTP 201 from `POST /v1/agents` because a new execution was created, and HTTP 202 from `POST /v1/messages` because the message is durably accepted but not yet delivered.
+
+`/health`, `/health/live`, and `/health/ready` return the bare `health` and `liveness` objects without the `ok` and `result` envelope so generic probes can read them. They still set `Content-Type: application/json` and `Cache-Control: no-store`.
+
 ## Routes
 
 | Method | Route | Authority | Result |
@@ -44,13 +48,13 @@ Failures use:
 | `POST` | `/v1/admin/scopes/import` | Admin | Imported scope and one-time scope token |
 | `POST` | `/v1/scopes` | Admin | New scope ID and scope token |
 | `POST` | `/v1/agents` | Scope | New execution identity, lease, and agent token |
-| `GET` | `/v1/agents` | Scope | Agents in the scope |
-| `POST` | `/v1/links` | Scope | Symmetric peer link |
+| `GET` | `/v1/agents` | Scope | Array of `agent` objects |
+| `POST` | `/v1/links` | Scope | `{"linked": true}` (idempotent) |
 | `PATCH` | `/v1/me/heartbeat` | Agent | Renewed presence |
 | `GET` | `/v1/peers` | Agent | Linked peers |
 | `POST` | `/v1/messages` | Agent | Durable delivery receipt |
 | `GET` | `/v1/messages/{messageId}` | Sender or recipient | Delivery receipt |
-| `POST` | `/v1/messages/ack` | Recipient | Acknowledgement count |
+| `POST` | `/v1/messages/ack` | Recipient | `{"acknowledged": n}` |
 | `POST` | `/v1/inbox/reserve` | Agent | Reservation or `null` |
 | `POST` | `/v1/inbox/{reservationId}/commit` | Reserving agent | Delivered messages |
 | `POST` | `/v1/inbox/{reservationId}/release` | Reserving agent | Release confirmation |
@@ -97,6 +101,8 @@ Failures use:
 | `POST` | `/mcp` | Agent | MCP Streamable HTTP endpoint |
 
 `/health/live` returns HTTP 200 while the server process can answer requests. `/health` and `/health/ready` return HTTP 200 only when the runtime can reach its storage backend. An unavailable backend returns HTTP 503 with `status: not_ready`. Health responses expose the backend name and availability, never its address or credentials.
+
+`POST /v1/links` accepts `linkAgentsInput` (`left` and `right` agent IDs). The link is symmetric, and repeating an existing link succeeds. `POST /v1/messages/ack` accepts `acknowledgeMessagesInput` and returns `acknowledgeMessagesResult`; `acknowledged` counts messages this call moved from delivered to acknowledged, so a repeated acknowledgement returns 0.
 
 `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 
