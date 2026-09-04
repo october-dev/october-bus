@@ -72,6 +72,131 @@ func requireCode(t *testing.T, err error, code ErrorCode) {
 	}
 }
 
+type authorityFailureStore struct {
+	storageBackend
+	authErr    error
+	kindErr    error
+	kindCalled bool
+}
+
+func (s *authorityFailureStore) AuthenticateScope(ctx context.Context, token string) (string, error) {
+	if s.authErr != nil {
+		return "", s.authErr
+	}
+	return s.storageBackend.AuthenticateScope(ctx, token)
+}
+
+func (s *authorityFailureStore) CredentialKind(context.Context, string) (CredentialKind, error) {
+	s.kindCalled = true
+	return CredentialKindUnknown, s.kindErr
+}
+
+func TestScopeAuthorityClassifiesCredentialsAndPreservesTaskFallbacks(t *testing.T) {
+	agents := setupAgents(t, ":memory:")
+	defer agents.runtime.Close()
+	ctx := context.Background()
+	_, a2aPrincipal := setupA2APrincipal(t, agents)
+	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{Name: "scope-authority"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputPrincipal, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
+		StreamID: stream.ID, Label: "Scope authority test", Permissions: []OutputPermission{OutputRead},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := agents.runtime.ListAgents(ctx, agents.scope.ScopeToken); err != nil {
+		t.Fatalf("scope credential was rejected: %v", err)
+	}
+	for name, testCase := range map[string]struct {
+		token string
+		want  ErrorCode
+	}{
+		"garbage":          {token: "not-a-credential", want: CodeUnauthenticated},
+		"agent":            {token: agents.plannerToken, want: CodePermissionDenied},
+		"a2a principal":    {token: a2aPrincipal.Credential, want: CodePermissionDenied},
+		"output principal": {token: outputPrincipal.Credential, want: CodePermissionDenied},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := agents.runtime.ListAgents(ctx, testCase.token)
+			requireCode(t, err, testCase.want)
+		})
+	}
+
+	if _, err := agents.runtime.AddTask(ctx, agents.scope.ScopeToken, AddTaskInput{Title: "Scope task"}); err != nil {
+		t.Fatalf("scope credential could not create task: %v", err)
+	}
+	if _, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Agent task"}); err != nil {
+		t.Fatalf("agent credential could not create task: %v", err)
+	}
+	for name, token := range map[string]string{
+		"garbage":          "not-a-credential",
+		"a2a principal":    a2aPrincipal.Credential,
+		"output principal": outputPrincipal.Credential,
+	} {
+		t.Run("task route "+name, func(t *testing.T) {
+			_, err := agents.runtime.ListTasks(ctx, token, false)
+			requireCode(t, err, CodeUnauthenticated)
+		})
+	}
+
+	if _, err := sqliteStore(t, agents.runtime).db.ExecContext(ctx, `UPDATE agents SET lease_expires_at=? WHERE token_hash=?`, nowMillis(), tokenDigest(agents.reviewerToken)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agents.runtime.ListAgents(ctx, agents.reviewerToken); err == nil {
+		t.Fatal("expired agent credential accessed a scope route")
+	} else {
+		requireCode(t, err, CodeUnauthenticated)
+	}
+	if _, err := agents.runtime.SetOutputPrincipalEnabled(ctx, agents.scope.ScopeToken, outputPrincipal.Principal.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agents.runtime.ListAgents(ctx, outputPrincipal.Credential); err == nil {
+		t.Fatal("disabled principal credential accessed a scope route")
+	} else {
+		requireCode(t, err, CodeUnauthenticated)
+	}
+
+	server := NewServer(agents.runtime, ServerOptions{})
+	request := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
+	request.Header.Set("Authorization", "Bearer "+agents.plannerToken)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("agent credential returned HTTP %d, want 403: %s", response.Code, response.Body.String())
+	}
+
+}
+
+func TestScopeAuthorityPropagatesAuthenticationAndClassifierErrors(t *testing.T) {
+	store, err := OpenStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	sentinel := errors.New("credential classifier failed")
+
+	classifierFailure := &authorityFailureStore{storageBackend: store, kindErr: sentinel}
+	runtimeValue := openWithStorage(classifierFailure, A2APrincipalLimits{})
+	if _, err := runtimeValue.ListAgents(context.Background(), "invalid"); !errors.Is(err, sentinel) {
+		t.Fatalf("classifier error was not propagated: %v", err)
+	}
+
+	authFailure := &authorityFailureStore{
+		storageBackend: store,
+		authErr:        Errorf(CodeBackpressure, "scope authentication unavailable"),
+		kindErr:        errors.New("must not be returned"),
+	}
+	runtimeValue = openWithStorage(authFailure, A2APrincipalLimits{})
+	_, err = runtimeValue.ListAgents(context.Background(), "invalid")
+	requireCode(t, err, CodeBackpressure)
+	if authFailure.kindCalled {
+		t.Fatal("classifier ran after a non-authentication failure")
+	}
+}
+
 func TestA2APrincipalLimitsLoadFromEnvironment(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_A2A_PRINCIPAL_MESSAGE_LIMIT", "12")
 	t.Setenv("OCTOBER_BUS_A2A_PRINCIPAL_BYTE_LIMIT", "4096")
@@ -755,7 +880,7 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = plannerClient.ListEscalations(ctx)
-	requireCode(t, err, CodeUnauthenticated)
+	requireCode(t, err, CodePermissionDenied)
 	receipt, err := plannerClient.SendMessage(ctx, SendMessageInput{To: "reviewer", Body: "Reserve me"})
 	if err != nil {
 		t.Fatal(err)

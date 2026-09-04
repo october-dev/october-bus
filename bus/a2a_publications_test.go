@@ -29,7 +29,7 @@ func TestAgentCardPublicationPersistsAndKeepsStableIdentity(t *testing.T) {
 	if _, err := agents.runtime.CreateAgentCardPublication(ctx, agents.plannerToken, PublishAgentCardInput{AgentID: agents.planner.AgentID}); err == nil {
 		t.Fatal("agent credential created a publication")
 	} else {
-		requireCode(t, err, CodeUnauthenticated)
+		requireCode(t, err, CodePermissionDenied)
 	}
 	if err := agents.runtime.Close(); err != nil {
 		t.Fatal(err)

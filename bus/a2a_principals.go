@@ -205,7 +205,7 @@ func (s *Store) AuthenticateA2APrincipal(ctx context.Context, credential, public
 }
 
 func (r *Runtime) CreateA2APrincipal(ctx context.Context, scopeToken string, input CreateA2APrincipalInput) (IssuedA2APrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -223,7 +223,7 @@ func (r *Runtime) CreateA2APrincipal(ctx context.Context, scopeToken string, inp
 }
 
 func (r *Runtime) ListA2APrincipals(ctx context.Context, scopeToken string) ([]A2APrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +231,7 @@ func (r *Runtime) ListA2APrincipals(ctx context.Context, scopeToken string) ([]A
 }
 
 func (r *Runtime) ListA2APrincipalUsage(ctx context.Context, scopeToken string) ([]A2APrincipalUsage, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (r *Runtime) ListA2APrincipalUsage(ctx context.Context, scopeToken string) 
 }
 
 func (r *Runtime) RotateA2APrincipal(ctx context.Context, scopeToken, principalID string) (IssuedA2APrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -254,7 +254,7 @@ func (r *Runtime) RotateA2APrincipal(ctx context.Context, scopeToken, principalI
 }
 
 func (r *Runtime) SetA2APrincipalEnabled(ctx context.Context, scopeToken, principalID string, enabled bool) (A2APrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return A2APrincipal{}, err
 	}

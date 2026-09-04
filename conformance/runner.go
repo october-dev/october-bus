@@ -172,6 +172,15 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 	}
 	planner := bus.Client{Address: options.Address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: options.Address, Token: reviewerRegistration.AgentToken}
+	if err := record.check("scope-route-authority-errors", func() error {
+		if _, err := planner.ListAgents(ctx); requireCode(err, bus.CodePermissionDenied) != nil {
+			return fmt.Errorf("agent credential on scope route: %v", err)
+		}
+		_, err := (bus.Client{Address: options.Address}).ListAgents(ctx)
+		return requireCode(err, bus.CodeUnauthenticated)
+	}); err != nil {
+		return result, err
+	}
 
 	var reviewerPublication bus.AgentCardPublication
 	if err := record.check("owner-controlled-agent-card-publication", func() error {
@@ -216,7 +225,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return fmt.Errorf("unexpected enabled publication: %#v, %v", enabled, err)
 		}
 		_, err = planner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "planner"})
-		return requireCode(err, bus.CodeUnauthenticated)
+		return requireCode(err, bus.CodePermissionDenied)
 	}); err != nil {
 		return result, err
 	}
@@ -233,7 +242,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return fmt.Errorf("unexpected principals: %#v, %v", listed, err)
 		}
 		remote := bus.Client{Address: options.Address, Token: issued.Credential}
-		if _, err := remote.ListAgents(ctx); requireCode(err, bus.CodeUnauthenticated) != nil {
+		if _, err := remote.ListAgents(ctx); requireCode(err, bus.CodePermissionDenied) != nil {
 			return fmt.Errorf("scoped credential accessed Bus APIs: %v", err)
 		}
 		disabled, err := owner.SetA2APrincipalEnabled(ctx, issued.Principal.ID, false)
@@ -537,7 +546,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return err
 		}
 		_, err = planner.ResolveEscalation(ctx, escalation.ID, "yes")
-		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
+		if err := requireCode(err, bus.CodePermissionDenied); err != nil {
 			return err
 		}
 		escalations, err := owner.ListEscalations(ctx)
@@ -587,7 +596,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return ctx.Err()
 		}
 		_, err = planner.Events(ctx, 0, 10, 0)
-		return requireCode(err, bus.CodeUnauthenticated)
+		return requireCode(err, bus.CodePermissionDenied)
 	}); err != nil {
 		return result, err
 	}
@@ -598,7 +607,7 @@ func Run(ctx context.Context, options Options) (result Result, runErr error) {
 			return fmt.Errorf("unexpected storage summary: %#v, %v", summary, err)
 		}
 		_, err = planner.StorageSummary(ctx)
-		if err := requireCode(err, bus.CodeUnauthenticated); err != nil {
+		if err := requireCode(err, bus.CodePermissionDenied); err != nil {
 			return err
 		}
 		before := time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)

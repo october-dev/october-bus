@@ -205,7 +205,7 @@ func (s *Store) SetOutputPrincipalEnabled(ctx context.Context, scopeID, principa
 }
 
 func (r *Runtime) CreateOutputPrincipal(ctx context.Context, scopeToken string, input CreateOutputPrincipalInput) (IssuedOutputPrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return IssuedOutputPrincipal{}, err
 	}
@@ -227,7 +227,7 @@ func (r *Runtime) CreateOutputPrincipal(ctx context.Context, scopeToken string, 
 }
 
 func (r *Runtime) ListOutputPrincipals(ctx context.Context, scopeToken string) ([]OutputPrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (r *Runtime) ListOutputPrincipals(ctx context.Context, scopeToken string) (
 }
 
 func (r *Runtime) RotateOutputPrincipal(ctx context.Context, scopeToken, principalID string) (IssuedOutputPrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return IssuedOutputPrincipal{}, err
 	}
@@ -250,7 +250,7 @@ func (r *Runtime) RotateOutputPrincipal(ctx context.Context, scopeToken, princip
 }
 
 func (r *Runtime) SetOutputPrincipalEnabled(ctx context.Context, scopeToken, principalID string, enabled bool) (OutputPrincipal, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return OutputPrincipal{}, err
 	}

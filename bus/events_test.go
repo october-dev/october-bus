@@ -127,7 +127,7 @@ func TestScopeEventsAreOrderedAndDoNotContainRecordBodies(t *testing.T) {
 	if _, err := agents.runtime.Events(ctx, agents.plannerToken, 0, 50, 0); err == nil {
 		t.Fatal("agent token read the scope event stream")
 	} else {
-		requireCode(t, err, CodeUnauthenticated)
+		requireCode(t, err, CodePermissionDenied)
 	}
 }
 

@@ -130,7 +130,7 @@ func TestOutputPrincipalsHaveNarrowIndependentPermissions(t *testing.T) {
 	_, err = agents.runtime.LatestOutput(ctx, reader.Credential, otherStream.ID)
 	requireCode(t, err, CodeUnauthenticated)
 	_, err = agents.runtime.ListAgents(ctx, reader.Credential)
-	requireCode(t, err, CodeUnauthenticated)
+	requireCode(t, err, CodePermissionDenied)
 	principals, err := agents.runtime.ListOutputPrincipals(ctx, agents.scope.ScopeToken)
 	if err != nil || len(principals) != 2 {
 		t.Fatalf("unexpected output principals: %#v, %v", principals, err)

@@ -34,6 +34,15 @@ type Principal struct {
 	LeaseExpiresAt int64 `json:"-"`
 }
 
+// CredentialKind identifies a currently valid non-scope bearer credential.
+type CredentialKind int
+
+const (
+	CredentialKindUnknown CredentialKind = iota
+	CredentialKindAgent
+	CredentialKindScopedPrincipal
+)
+
 type Store struct {
 	db *sql.DB
 }
@@ -397,6 +406,45 @@ func (s *Store) AuthenticateScope(ctx context.Context, supplied string) (string,
 		return "", err
 	}
 	return scopeID, nil
+}
+
+// CredentialKind classifies a non-scope bearer credential after scope
+// authentication has failed. It intentionally does not resolve scope tokens.
+func (s *Store) CredentialKind(ctx context.Context, supplied string) (CredentialKind, error) {
+	var leaseExpiresAt int64
+	err := s.db.QueryRowContext(ctx, `SELECT lease_expires_at FROM agents WHERE token_hash=?`, tokenDigest(supplied)).Scan(&leaseExpiresAt)
+	if err == nil {
+		if leaseExpiresAt > nowMillis() {
+			return CredentialKindAgent, nil
+		}
+		return CredentialKindUnknown, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return CredentialKindUnknown, err
+	}
+
+	credentialID, secret, valid := splitScopedCredential(supplied)
+	if !valid {
+		secureEqual(tokenDigest("invalid"), tokenDigest(supplied))
+		return CredentialKindUnknown, nil
+	}
+	var expectedHash string
+	var enabled int
+	err = s.db.QueryRowContext(ctx, `SELECT token_hash,enabled FROM scoped_credentials WHERE credential_id=?`, credentialID).
+		Scan(&expectedHash, &enabled)
+	actualHash := tokenDigest(secret)
+	if errors.Is(err, sql.ErrNoRows) {
+		secureEqual(tokenDigest("invalid"), actualHash)
+		return CredentialKindUnknown, nil
+	}
+	if err != nil {
+		return CredentialKindUnknown, err
+	}
+	match := secureEqual(expectedHash, actualHash)
+	if enabled == 1 && match {
+		return CredentialKindScopedPrincipal, nil
+	}
+	return CredentialKindUnknown, nil
 }
 
 func (s *Store) RegisterAgent(ctx context.Context, scopeID string, input RegisterAgentInput) (RegisterAgentResult, error) {

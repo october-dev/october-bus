@@ -139,6 +139,8 @@ go run ./cmd/october-bus scope create my-project
 
 The command returns a scope token. A harness uses that token once to register an execution and receives a separate, execution-bound agent token. The TypeScript client lives in `sdk/typescript`. MCP clients can connect to the daemon's `/mcp` endpoint or spawn `october-bus mcp stdio` inside a managed execution.
 
+Migration note: scope-authority endpoints now distinguish a valid credential of the wrong authority from an invalid credential. Agent, A2A-principal, and output-principal credentials receive `PERMISSION_DENIED` (HTTP 403) on scope-only routes; missing, malformed, expired, disabled, and replaced credentials continue to receive `UNAUTHENTICATED` (HTTP 401). Clients should correct the credential type on 403 and only treat 401 as failed authentication.
+
 Use the scope as a persistent project todo board:
 
 ```bash

@@ -132,7 +132,7 @@ func TestA2APrincipalAuthorityAndRetention(t *testing.T) {
 	if _, err := agents.runtime.CreateA2APrincipal(ctx, agents.plannerToken, CreateA2APrincipalInput{PublicationID: publication.ID, Label: "Denied"}); err == nil {
 		t.Fatal("agent authority created a remote principal")
 	} else {
-		requireCode(t, err, CodeUnauthenticated)
+		requireCode(t, err, CodePermissionDenied)
 	}
 	otherScope, err := agents.runtime.CreateScope(ctx, CreateScopeInput{ID: "other"})
 	if err != nil {
@@ -178,12 +178,12 @@ func TestA2APrincipalPersistsWithoutExposingSecretToBusAPIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServer(agents.runtime, ServerOptions{})
-	for _, path := range []string{"/v1/agents", "/mcp"} {
+	for path, want := range map[string]int{"/v1/agents": http.StatusForbidden, "/mcp": http.StatusUnauthorized} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Header.Set("Authorization", "Bearer "+issued.Credential)
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, request)
-		if response.Code != http.StatusUnauthorized {
+		if response.Code != want {
 			t.Fatalf("scoped credential accessed %s: %d %s", path, response.Code, response.Body.String())
 		}
 	}

@@ -497,7 +497,7 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 		if err != nil {
 			return err
 		}
-		if _, err := workerSession.Client.ResolveEscalation(ctx, escalation.ID, "yes"); requireCode(err, bus.CodeUnauthenticated) != nil {
+		if _, err := workerSession.Client.ResolveEscalation(ctx, escalation.ID, "yes"); requireCode(err, bus.CodePermissionDenied) != nil {
 			return fmt.Errorf("agent resolved its own escalation: %v", err)
 		}
 		resolved, err := owner.ResolveEscalation(ctx, escalation.ID, "yes")

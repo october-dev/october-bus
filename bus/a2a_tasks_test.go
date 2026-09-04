@@ -193,7 +193,7 @@ func TestA2APrincipalMessageLimitsAreIndependentAndAtomic(t *testing.T) {
 	if _, err := agents.runtime.ListA2APrincipalUsage(ctx, agents.plannerToken); err == nil {
 		t.Fatal("agent authority inspected remote principal usage")
 	} else {
-		requireCode(t, err, CodeUnauthenticated)
+		requireCode(t, err, CodePermissionDenied)
 	}
 	byPrincipal := map[string]A2APrincipalUsage{}
 	for _, item := range usage {

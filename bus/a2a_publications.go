@@ -140,7 +140,7 @@ func (s *Store) PublishedAgent(ctx context.Context, publicationID string) (agent
 }
 
 func (r *Runtime) CreateAgentCardPublication(ctx context.Context, scopeToken string, input PublishAgentCardInput) (agentCardPublication, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return agentCardPublication{}, err
 	}
@@ -155,7 +155,7 @@ func (r *Runtime) CreateAgentCardPublication(ctx context.Context, scopeToken str
 }
 
 func (r *Runtime) ListAgentCardPublications(ctx context.Context, scopeToken string) ([]agentCardPublication, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (r *Runtime) ListAgentCardPublications(ctx context.Context, scopeToken stri
 }
 
 func (r *Runtime) SetAgentCardPublicationEnabled(ctx context.Context, scopeToken, publicationID string, enabled bool) (agentCardPublication, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return agentCardPublication{}, err
 	}

@@ -83,7 +83,7 @@ func (r *Runtime) CreateScope(ctx context.Context, input CreateScopeInput) (Crea
 }
 
 func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input RegisterAgentInput) (RegisterAgentResult, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return RegisterAgentResult{}, err
 	}
@@ -120,7 +120,7 @@ func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input Re
 }
 
 func (r *Runtime) ListAgents(ctx context.Context, scopeToken string) ([]Agent, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (r *Runtime) ListAgents(ctx context.Context, scopeToken string) ([]Agent, e
 }
 
 func (r *Runtime) LinkAgents(ctx context.Context, scopeToken, left, right string) error {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return err
 	}
@@ -502,7 +502,7 @@ func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) (
 }
 
 func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (StorageSummary, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return StorageSummary{}, err
 	}
@@ -514,7 +514,7 @@ func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (Storag
 }
 
 func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input PruneScopeInput) (PruneScopeResult, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
@@ -539,6 +539,24 @@ func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID, cre
 		return scopeID, "", nil
 	}
 	return "", "", agentErr
+}
+
+func (r *Runtime) scopeAuthority(ctx context.Context, token string) (string, error) {
+	scopeID, err := r.store.AuthenticateScope(ctx, token)
+	if err == nil {
+		return scopeID, nil
+	}
+	if AsBusError(err).Code != CodeUnauthenticated {
+		return "", err
+	}
+	kind, kindErr := r.store.CredentialKind(ctx, token)
+	if kindErr != nil {
+		return "", kindErr
+	}
+	if kind != CredentialKindUnknown {
+		return "", Errorf(CodePermissionDenied, "Scope authority is required")
+	}
+	return "", err
 }
 
 func (r *Runtime) AskHuman(ctx context.Context, agentToken string, input AskHumanInput) (HumanEscalation, error) {
@@ -576,7 +594,7 @@ func (r *Runtime) Escalation(ctx context.Context, agentToken, escalationID strin
 }
 
 func (r *Runtime) ListEscalations(ctx context.Context, scopeToken string) ([]HumanEscalation, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +602,7 @@ func (r *Runtime) ListEscalations(ctx context.Context, scopeToken string) ([]Hum
 }
 
 func (r *Runtime) ResolveEscalation(ctx context.Context, scopeToken, escalationID, answer string) (HumanEscalation, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return HumanEscalation{}, err
 	}

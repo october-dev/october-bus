@@ -614,7 +614,7 @@ func validatePublishOutput(input PublishOutputInput) (string, string, error) {
 }
 
 func (r *Runtime) CreateOutputStream(ctx context.Context, scopeToken string, input CreateOutputStreamInput) (OutputStream, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -637,7 +637,7 @@ func (r *Runtime) CreateOutputStream(ctx context.Context, scopeToken string, inp
 }
 
 func (r *Runtime) ListOutputStreams(ctx context.Context, scopeToken string) ([]OutputStream, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +645,7 @@ func (r *Runtime) ListOutputStreams(ctx context.Context, scopeToken string) ([]O
 }
 
 func (r *Runtime) OutputStream(ctx context.Context, scopeToken, streamID string) (OutputStream, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -656,7 +656,7 @@ func (r *Runtime) OutputStream(ctx context.Context, scopeToken, streamID string)
 }
 
 func (r *Runtime) RemoveOutputStream(ctx context.Context, scopeToken, streamID string) error {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return err
 	}
@@ -671,7 +671,7 @@ func (r *Runtime) RemoveOutputStream(ctx context.Context, scopeToken, streamID s
 }
 
 func (r *Runtime) SetOutputPublisher(ctx context.Context, scopeToken, streamID, agentID string, allowed bool) (OutputStream, error) {
-	scopeID, err := r.store.AuthenticateScope(ctx, scopeToken)
+	scopeID, err := r.scopeAuthority(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}

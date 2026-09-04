@@ -6,6 +6,7 @@ The reference transport is JSON over HTTP. The local runtime listens on loopback
 
 - Base URL example: `http://127.0.0.1:4765`
 - Authenticated requests use `Authorization: Bearer <token>`.
+- Scope-authority routes return `PERMISSION_DENIED` (HTTP 403) when the bearer is a recognized, currently valid agent, A2A-principal, or output-principal credential. Missing, malformed, expired, disabled, replaced, and otherwise invalid credentials return `UNAUTHENTICATED` (HTTP 401). Task routes that accept either scope or agent authority and scoped output-read fallbacks retain their documented authority behavior.
 - Request bodies contain one JSON value and reject unknown fields.
 - Request bodies are limited to 1 MiB. Scope archive imports are limited to 64 MiB.
 - Responses set `Content-Type: application/json` and `Cache-Control: no-store`.
@@ -110,7 +111,7 @@ Clients resume from `nextRevision`. `minimumCursor` is the oldest cursor that ca
 
 Agent Card publications are absent by default. A scope owner publishes one registered agent by sending its exact `agentId`. The returned opaque publication ID and URLs remain stable while the publication is disabled and re-enabled. Public card requests for unknown and disabled IDs return the same `NOT_FOUND` response. Card and interface URLs come from the runtime's trusted address configuration, never the request `Host` header.
 
-`POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authenticate to any `/v1` or `/mcp` operation.
+`POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authorize scope or agent operations. Presenting an enabled principal credential to a scope-authority route returns `PERMISSION_DENIED`; `/mcp` and other agent-authority routes continue to return `UNAUTHENTICATED`.
 
 `GET /v1/a2a/principals/usage` returns unfinished message counts, text bytes, and effective limits for every A2A principal in the scope. It does not return message content. Terminal tasks and undelivered expired requests do not consume capacity.
 

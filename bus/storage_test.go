@@ -115,7 +115,7 @@ func TestRetentionRequiresScopeAuthorityAndValidCutoff(t *testing.T) {
 	if _, err := agents.runtime.StorageSummary(ctx, agents.plannerToken); err == nil {
 		t.Fatal("agent authority inspected scope storage")
 	} else {
-		requireCode(t, err, CodeUnauthenticated)
+		requireCode(t, err, CodePermissionDenied)
 	}
 	_, err := agents.runtime.PruneScope(ctx, agents.scope.ScopeToken, PruneScopeInput{Before: "yesterday"})
 	requireCode(t, err, CodeInvalidArgument)

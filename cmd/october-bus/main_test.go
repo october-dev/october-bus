@@ -600,18 +600,35 @@ func TestListAgentsRejectsInvalidOrAgentCredential(t *testing.T) {
 	address, _, senderToken, _, cleanup := startTestServer(t, ctx, "agent-list-auth")
 	defer cleanup()
 
-	for name, token := range map[string]string{
-		"invalid":     "not-a-real-token",
-		"agent-token": senderToken,
+	for name, testCase := range map[string]struct {
+		token string
+		code  bus.ErrorCode
+	}{
+		"invalid":     {token: "not-a-real-token", code: bus.CodeUnauthenticated},
+		"agent-token": {token: senderToken, code: bus.CodePermissionDenied},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", token)
+			t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", testCase.token)
 			err := runListAgentsCapturing(&bytes.Buffer{}, "--address", address)
 			var busErr *bus.BusError
-			if !errors.As(err, &busErr) || busErr.Code != bus.CodeUnauthenticated {
-				t.Fatalf("expected CodeUnauthenticated, got %v", err)
+			if !errors.As(err, &busErr) || busErr.Code != testCase.code {
+				t.Fatalf("expected %s, got %v", testCase.code, err)
 			}
 		})
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/v1/agents", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+senderToken)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("agent credential returned HTTP %d, want 403", response.StatusCode)
 	}
 }
 
