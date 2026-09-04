@@ -2,7 +2,9 @@ package bus
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -275,8 +277,39 @@ func (s *Server) serveMCP(response http.ResponseWriter, request *http.Request) {
 		writeFailure(response, err)
 		return
 	}
+	if !s.mcpHostAllowed(request.Host) {
+		writeFailure(response, Errorf(CodePermissionDenied, "MCP Host is not allowed"))
+		return
+	}
 	request = request.WithContext(context.WithValue(request.Context(), mcpTokenKey{}, token))
 	s.mcpHandler.ServeHTTP(response, request)
+}
+
+// mcpHostAllowed is the Bus DNS-rebinding policy for /mcp. Loopback authorities are
+// always accepted. Any other Host must match a configured entry exactly, including port.
+func (s *Server) mcpHostAllowed(host string) bool {
+	if host == "" {
+		return false
+	}
+	name, _, err := net.SplitHostPort(host)
+	if err != nil {
+		name = host
+		if strings.HasPrefix(name, "[") && strings.HasSuffix(name, "]") {
+			name = name[1 : len(name)-1]
+		}
+	}
+	if strings.EqualFold(name, "localhost") {
+		return true
+	}
+	if ip, parseErr := netip.ParseAddr(name); parseErr == nil && ip.IsLoopback() {
+		return true
+	}
+	for _, candidate := range s.options.AllowedHosts {
+		if host == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) shutdownServer(response http.ResponseWriter, request *http.Request) error {

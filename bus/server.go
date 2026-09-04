@@ -27,6 +27,9 @@ type ServerOptions struct {
 	StartedAt      string
 	PublicBaseURL  string
 	AllowedOrigins []string
+	// AllowedHosts lists exact HTTP Host authorities, including the port as sent,
+	// that may reach /mcp in addition to loopback. It does not affect /v1 routes.
+	AllowedHosts []string
 }
 
 type Server struct {
@@ -69,6 +72,10 @@ func NewServer(runtime *Runtime, options ServerOptions) *Server {
 	}, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBodyBytes,
 		PropagateRequestCancellation: true,
+		// The go-sdk DNS-rebinding guard is disabled because Server.serveMCP owns the
+		// Host policy: it honours AllowedHosts, returns the JSON failure envelope, and
+		// is covered by this package's tests. Do not re-enable without removing that check.
+		DisableLocalhostProtection: true,
 	})
 	server.router = server.newRouter()
 	server.httpServer = &http.Server{

@@ -29,6 +29,39 @@ october-bus mcp stdio
 
 The bridge reads `OCTOBER_BUS_ADDRESS` and `OCTOBER_BUS_AGENT_TOKEN`, discovers the daemon's MCP tools, and forwards calls without keeping its own state. `october-bus agent run` supplies both values to the managed harness process. If either value is absent, the bridge starts without tools and does not contact a daemon.
 
+## Reaching /mcp from another machine
+
+The daemon always binds `127.0.0.1`. Remote access needs a bridge or reverse proxy on the daemon's machine; the allowlist alone changes nothing about reachability.
+
+`/mcp` additionally checks the request `Host`. Loopback Hosts pass at any port; anything else receives HTTP 403 `PERMISSION_DENIED`. This is DNS-rebinding protection. `/v1` has no such check.
+
+Option A is an HTTP-aware proxy. Terminate the remote connection in a proxy that validates its own incoming `Host` and restricts clients, then configure it with:
+
+```nginx
+proxy_set_header Host 127.0.0.1:4765;
+```
+
+A proxy that rewrites every `Host` it receives removes the protection instead of enforcing it. A plain TCP bridge such as `socat` forwards the client's `Host` unchanged, which is why it is rejected.
+
+Option B is to pass the real authority through the bridge and allowlist it exactly:
+
+```sh
+OCTOBER_BUS_ALLOWED_HOSTS=192.168.1.20:4765,bus.internal:4765 october-bus start
+```
+
+PowerShell uses the same setting:
+
+```powershell
+$env:OCTOBER_BUS_ALLOWED_HOSTS = "192.168.1.20:4765,bus.internal:4765"
+october-bus start
+```
+
+The value is a comma-separated list of exact `Host` authorities, including the port as sent. Wildcards and suffixes are not supported.
+
+Each entry gives up rebinding protection for that name, so list only authorities you control and pair remote exposure with authenticated, encrypted transport as described in the README under "Remote transport needs separate trust". This setting applies only to `/mcp`; other routes retain their existing authentication and authorization controls.
+
+socat passes a backlog of 5 to listen(2) by default. This bounds queued, not-yet-accepted connections rather than established MCP concurrency; connection bursts may therefore be delayed or fail. Raise it with backlog=64 or use a reverse proxy. This tunes the bridge, not the Bus.
+
 ## Inspect message delivery state
 
 Agents can inspect the durable delivery state of a message they sent or
