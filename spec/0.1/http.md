@@ -100,7 +100,26 @@ The `GET /health`, `GET /health/live`, and `GET /health/ready` endpoints are the
 
 `/health/live` returns HTTP 200 while the server process can answer requests. `/health` and `/health/ready` return HTTP 200 only when the runtime can reach its storage backend. An unavailable backend returns HTTP 503 with `status: not_ready`. Health responses expose the backend name and availability, never its address or credentials.
 
-`POST /v1/agents` returns `201 Created`. `POST /v1/messages` returns `202 Accepted`. All other successful `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes return `200 OK` unless noted otherwise. `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
+The following routes return HTTP status codes other than `200 OK` on success:
+
+| Method | Route | Success code |
+| --- | --- | ---: |
+| `POST` | `/v1/scopes` | `201 Created` |
+| `POST` | `/v1/admin/scopes/import` (new import) | `201 Created` |
+| `POST` | `/v1/admin/scopes/import` (retry) | `200 OK` |
+| `POST` | `/v1/admin/shutdown` | `202 Accepted` |
+| `POST` | `/v1/agents` | `201 Created` |
+| `POST` | `/v1/messages` | `202 Accepted` |
+| `POST` | `/v1/tasks` | `201 Created` |
+| `POST` | `/v1/tasks/{taskId}/progress` | `201 Created` |
+| `POST` | `/v1/escalations` | `201 Created` |
+| `POST` | `/v1/a2a/publications` | `201 Created` |
+| `POST` | `/v1/a2a/principals` | `201 Created` |
+| `POST` | `/v1/output-streams` | `201 Created` |
+| `POST` | `/v1/output-principals` | `201 Created` |
+| `POST` | `/outputs/{streamId}/values` | `201 Created` |
+
+All other successful `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes return `200 OK`. `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 
 `GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
 
