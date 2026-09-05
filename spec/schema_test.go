@@ -112,6 +112,21 @@ func TestProtocolSchemas(t *testing.T) {
 		"to": "planner", "body": "Unexpected correlation", "mode": "notify", "responseTo": "msg_123",
 	})
 
+	link := resolvedSchema(t, path, "linkAgentsInput")
+	requireValid(t, link, map[string]any{"left": "reviewer", "right": "planner"})
+	requireInvalid(t, link, map[string]any{"left": "reviewer"})
+	requireInvalid(t, link, map[string]any{"left": "reviewer", "right": "bad id"})
+
+	ackInput := resolvedSchema(t, path, "acknowledgeMessagesInput")
+	requireValid(t, ackInput, map[string]any{"messageIds": []any{"msg_123"}})
+	requireInvalid(t, ackInput, map[string]any{"messageIds": []any{}})
+	requireInvalid(t, ackInput, map[string]any{})
+
+	ackResult := resolvedSchema(t, path, "acknowledgeMessagesResult")
+	requireValid(t, ackResult, map[string]any{"ok": true, "result": map[string]any{"acknowledged": float64(2)}})
+	requireInvalid(t, ackResult, map[string]any{"ok": true, "result": map[string]any{"acknowledged": float64(-1)}})
+	requireInvalid(t, ackResult, map[string]any{"ok": false})
+
 	reserve := resolvedSchema(t, path, "reserveInboxInput")
 	requireValid(t, reserve, map[string]any{"limit": float64(50), "waitMs": float64(25000)})
 	requireValid(t, reserve, map[string]any{})
