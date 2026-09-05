@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "harnessFamily": "Cursor",
+  "harnessVersion": "3.18.9",
+  "adapterId": "cursor-mcp",
+  "adapterVersion": "0.1.0",
+  "protocolVersion": "0.1",
+  "runtimeVersion": "dev",
+  "operatingSystem": "macos",
+  "architecture": "arm64",
+  "profile": "mcp-adapter",
+  "result": "passed",
+  "resultDigest": "sha256:741babcd2bac9e3a8d7c037daaca22df374a4fbba5ec0d1c4fb2a3508ce037d3",
+  "verifiedAt": "2026-09-03T16:35:56Z",
+  "repositoryCommit": "859b3fbac9d8c2be8bd5afafa0b31563939de552",
+  "verificationMode": "assisted",
+  "limitations": [
+    "Pull-only delivery",
+    "Process reachability does not prove model readiness",
+    "Verified only on macOS arm64"
+  ]
+}
