@@ -25,7 +25,7 @@ People increasingly run several coding agents at once. The human often becomes t
 Agents should be able to coordinate directly while keeping their own tools, permissions, and context. October Bus provides the shared language for that coordination. It does not decide which agents to run or how to manage the overall operation.
 
 > [!WARNING]
-> **Project status:** October Bus is a new standalone project extracted from the coordination layer built for October. It is under active development and is not yet stable. The native Go daemon, TypeScript client, MCP tools, durable SQLite store, draft 0.1 specification, and conformance profiles are runnable. Codex CLI 0.152.1 is verified on macOS arm64. Early Claude Code, Cursor, and OpenCode configurations are included. Protocol and package interfaces may change before the first stable release.
+> **Project status:** October Bus is a new standalone project extracted from the coordination layer built for October. It is under active development and is not yet stable. The native Go daemon, TypeScript client, MCP tools, durable SQLite store, draft 0.1 specification, and conformance profiles are runnable. Codex CLI 0.152.1 and OpenCode 1.18.25 are verified on macOS arm64. Early Claude Code and Cursor configurations are included. Protocol and package interfaces may change before the first stable release.
 
 ## What agents can do
 
@@ -216,7 +216,7 @@ If a harness cannot safely wake itself or prove that it is idle, it can implemen
 
 ## Compatibility
 
-Codex CLI 0.152.1 is verified on macOS arm64. Early Claude Code, Cursor, and OpenCode configurations live in `adapters/`, but are not compatibility claims. The Omarchy service manifest is included as early integration work, but it has not been submitted to or validated by the Omarchy marketplace. The [compatibility registry](compatibility/README.md) lists only adapters with current passing evidence.
+Codex CLI 0.152.1 and OpenCode 1.18.25 are verified on macOS arm64. Early Claude Code and Cursor configurations live in `adapters/`, but are not compatibility claims. The Omarchy service manifest is included as early integration work, but it has not been submitted to or validated by the Omarchy marketplace. The [compatibility registry](compatibility/README.md) lists only adapters with current passing evidence.
 
 The conformance runner can start an isolated runtime and remove its state when the run finishes:
 

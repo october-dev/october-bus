@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "verified": [
-    "evidence/codex-0.152.1-macos-arm64.json"
+    "evidence/codex-0.152.1-macos-arm64.json",
+    "evidence/opencode-1.18.25-macos-arm64.json"
   ]
 }
