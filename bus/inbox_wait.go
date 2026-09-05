@@ -67,3 +67,14 @@ func (signals *runtimeSignals) notify(key signalKey) {
 		delete(signals.channels, key)
 	}
 }
+
+func (signals *runtimeSignals) notifyAllScope(scopeID string) {
+	signals.mu.Lock()
+	defer signals.mu.Unlock()
+	for key, signal := range signals.channels {
+		if key.scopeID == scopeID {
+			close(signal.channel)
+			delete(signals.channels, key)
+		}
+	}
+}

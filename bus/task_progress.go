@@ -72,7 +72,7 @@ ORDER BY task_id,sequence`, scopeID, recentTaskProgress)
 }
 
 func (s *Store) AddTaskProgress(ctx context.Context, principal Principal, taskID string, input AddTaskProgressInput) (TaskProgress, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return TaskProgress{}, err
 	}

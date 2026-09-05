@@ -1,0 +1,91 @@
+package bus
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// migrateV2 is the supported upgrade from v0.1.0-rc.4. Unreleased intermediate
+// schemas deliberately remain rejected rather than being guessed at.
+func (s *Store) migrateV2(ctx context.Context) error {
+	if s.source != ":memory:" {
+		backup, err := os.CreateTemp(filepath.Dir(s.source), filepath.Base(s.source)+".schema2-backup-")
+		if err != nil {
+			return fmt.Errorf("create migration backup: %w", err)
+		}
+		path := backup.Name()
+		if err := backup.Close(); err != nil {
+			return err
+		}
+		// SQLite's snapshot includes committed WAL state; copying only the db does not.
+		if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+			return fmt.Errorf("migration backup %s failed (database unchanged): %w", path, err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	defer s.db.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := migrateV2Tx(ctx, tx); err != nil {
+		return fmt.Errorf("schema 2 migration rolled back: %w", err)
+	}
+	return tx.Commit()
+}
+
+func migrateV2Tx(ctx context.Context, tx *sql.Tx) error {
+	// A write transaction covers renames, copies, validation and the version bump.
+	if _, err := tx.ExecContext(ctx, "UPDATE scopes SET created_at=created_at WHERE 0"); err != nil {
+		return err
+	}
+	for _, index := range []string{"agents_scope_updated", "messages_inbox", "messages_sender", "messages_idempotency", "tasks_scope_status", "escalations_scope_status"} {
+		if _, err := tx.ExecContext(ctx, "DROP INDEX "+index); err != nil {
+			return err
+		}
+	}
+	tables := []string{"scopes", "agents", "peer_links", "messages", "reservations", "tasks", "escalations"}
+	for _, table := range tables {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE "+table+" RENAME TO legacy_"+table); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
+		return err
+	}
+	statements := []string{
+		`INSERT INTO scopes(scope_id,token_hash,created_at) SELECT scope_id,token_hash,created_at FROM legacy_scopes`,
+		`INSERT INTO agents SELECT * FROM legacy_agents`,
+		`INSERT INTO peer_links SELECT * FROM legacy_peer_links`,
+		`INSERT INTO messages SELECT message_id,scope_id,'agent',from_agent,'agent',to_agent,mode,body,context_json,response_to,idempotency_key,request_hash,state,reservation_id,created_at,expires_at,delivered_at,acknowledged_at,replied_at,response_message_id FROM legacy_messages`,
+		`INSERT INTO reservations SELECT * FROM legacy_reservations`,
+		// The old description remains intact; a bounded, stable title is added.
+		`INSERT INTO tasks SELECT task_id,scope_id,'Migrated task '||task_id,description,created_by,claimed_by,claimed_execution_id,status,dependencies_json,note,created_at,updated_at FROM legacy_tasks`,
+		`INSERT INTO escalations SELECT * FROM legacy_escalations`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	for i := len(tables) - 1; i >= 0; i-- {
+		if _, err := tx.ExecContext(ctx, "DROP TABLE legacy_"+tables[i]); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("migrated database contains invalid foreign keys")
+	}
+	return rows.Err()
+}

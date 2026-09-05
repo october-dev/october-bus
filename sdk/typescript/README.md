@@ -1,10 +1,16 @@
-# October Bus TypeScript Client
+# October Bus CLI and TypeScript Client
 
 Typed clients and protocol definitions for connecting Node.js applications and harness adapters to October Bus.
 
-The Bus daemon is distributed separately as a native executable.
+Starting with `0.1.0-next.14`, this package includes a launcher for the native Go daemon and the TypeScript client. npm installs the matching binary through an exact-version optional dependency; it does not compile Go or run a download script on your machine. Existing TypeScript imports are unchanged. Older npm releases contain only the client.
 
 The client is in active development and has not reached a stable release. Before 1.0, its API, schemas, and protocol behavior may change between releases.
+
+Managed sessions require a runtime with `POST /v1/me/retire`. Close and cancellation drain lifecycle writes and attempt permanent execution retirement; temporary offline heartbeats are distinct. Inspect `session.error` for heartbeat or cleanup failure. Failed cleanup falls back to lease expiry. Do not use this updated session helper against rc.4.
+
+Admins can use `listScopes()`, `rotateScopeToken(scopeId)`, and `deleteScope(scopeId)` for recovery. Rotation also retires executions and disables scoped credentials; deletion is permanent. Both agent and scope clients expose `taskPage(after?, limit?, options?)` for bounded history traversal.
+
+`for await (const chunk of admin.backup())` streams a full SQLite snapshot without accumulating it in memory. Write it to a new private file, discard partial output if iteration fails, and retain the original database when restoring. This snapshot includes credentials and is not a portable scope archive.
 
 `OctoberBusAdminClient` can export and import versioned portable scope archives. Archives preserve durable collaboration state but exclude credentials, leases, and active execution authority.
 
@@ -15,6 +21,17 @@ Install the current prerelease from the `next` tag:
 ```sh
 npm install @october-dev/october-bus@next
 ```
+
+Run the native CLI without installing Go:
+
+```sh
+npx @october-dev/october-bus@0.1.0-next.14 demo
+npx @october-dev/october-bus@0.1.0-next.14 start
+```
+
+macOS, Linux, and Windows binaries are provided for x64 and arm64. Linux binaries are built without CGO. Keep optional dependencies enabled; `--ignore-scripts` is supported. If you installed with `--omit=optional`, reinstall with `--include=optional` to use the CLI. SDK-only consumers can omit the binary packages and keep using a separately installed daemon. Do not copy `node_modules` between platforms.
+
+The CLI refuses mismatched binary versions and never falls back to another executable on `PATH`. Native archives remain available from [GitHub releases](https://github.com/october-dev/october-bus/releases).
 
 ## Example
 

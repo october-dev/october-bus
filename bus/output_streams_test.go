@@ -17,12 +17,8 @@ func TestOutputStreamsPublishBoundedOrderedValues(t *testing.T) {
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{
 		Name: "site-preview", RetentionLimit: 2, PublisherAgentIDs: []string{agents.reviewer.AgentID},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stream.ID == "" || stream.Name != "site-preview" || stream.RetentionLimit != 2 || len(stream.PublisherAgentIDs) != 1 {
-		t.Fatalf("unexpected stream: %#v", stream)
-	}
+	requireNoError(t, err)
+	require(t, stream.ID != "" && stream.Name == "site-preview" && stream.RetentionLimit == 2 && len(stream.PublisherAgentIDs) == 1, "unexpected stream: %#v", stream)
 	_, err = agents.runtime.PublishOutput(ctx, agents.plannerToken, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "denied"})
 	requireCode(t, err, CodePermissionDenied)
 	values := []PublishOutputInput{
@@ -32,42 +28,28 @@ func TestOutputStreamsPublishBoundedOrderedValues(t *testing.T) {
 	}
 	for index, input := range values {
 		value, err := agents.runtime.PublishOutput(ctx, agents.reviewerToken, stream.ID, input)
-		if err != nil || value.Sequence != int64(index+1) || value.ProducerType != "agent" || value.ProducerID != agents.reviewer.AgentID {
-			t.Fatalf("unexpected output value %d: %#v, %v", index, value, err)
-		}
+		require(t, err == nil && value.Sequence == int64(index+1) && value.ProducerType == "agent" && value.ProducerID == agents.reviewer.AgentID, "unexpected output value %d: %#v, %v", index, value, err)
 	}
 	latest, err := agents.runtime.LatestOutput(ctx, agents.scope.ScopeToken, stream.ID)
-	if err != nil || latest == nil || latest.Sequence != 3 || latest.Value != "deployed" {
-		t.Fatalf("unexpected latest output: %#v, %v", latest, err)
-	}
+	require(t, err == nil && latest != nil && latest.Sequence == 3 && latest.Value == "deployed", "unexpected latest output: %#v, %v", latest, err)
 	history, err := agents.runtime.OutputHistory(ctx, agents.scope.ScopeToken, stream.ID, 1, 10)
-	if err != nil || history.ResyncRequired || len(history.Values) != 2 || history.Values[0].Sequence != 2 || history.Values[1].Sequence != 3 {
-		t.Fatalf("unexpected retained history: %#v, %v", history, err)
-	}
+	require(t, err == nil && !history.ResyncRequired && len(history.Values) == 2 && history.Values[0].Sequence == 2 && history.Values[1].Sequence == 3, "unexpected retained history: %#v, %v", history, err)
 	stale, err := agents.runtime.OutputHistory(ctx, agents.scope.ScopeToken, stream.ID, 0, 10)
-	if err != nil || !stale.ResyncRequired || stale.MinimumCursor != 1 || stale.NextSequence != 3 {
-		t.Fatalf("unexpected stale history result: %#v, %v", stale, err)
-	}
+	require(t, err == nil && stale.ResyncRequired && stale.MinimumCursor == 1 && stale.NextSequence == 3, "unexpected stale history result: %#v, %v", stale, err)
 	listed, err := agents.runtime.ListOutputStreams(ctx, agents.scope.ScopeToken)
-	if err != nil || len(listed) != 1 || listed[0].CurrentSequence != 3 || listed[0].MinimumCursor != 1 {
-		t.Fatalf("unexpected stream list: %#v, %v", listed, err)
-	}
+	require(t, err == nil && len(listed) == 1 && listed[0].CurrentSequence == 3 && listed[0].MinimumCursor == 1, "unexpected stream list: %#v, %v", listed, err)
 	if _, err := agents.runtime.SetOutputPublisher(ctx, agents.scope.ScopeToken, stream.ID, agents.reviewer.AgentID, false); err != nil {
 		t.Fatal(err)
 	}
 	_, err = agents.runtime.PublishOutput(ctx, agents.reviewerToken, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "denied again"})
 	requireCode(t, err, CodePermissionDenied)
 	updated, err := agents.runtime.SetOutputPublisher(ctx, agents.scope.ScopeToken, stream.ID, agents.planner.AgentID, true)
-	if err != nil || len(updated.PublisherAgentIDs) != 1 || updated.PublisherAgentIDs[0] != agents.planner.AgentID {
-		t.Fatalf("unexpected publisher update: %#v, %v", updated, err)
-	}
+	require(t, err == nil && len(updated.PublisherAgentIDs) == 1 && updated.PublisherAgentIDs[0] == agents.planner.AgentID, "unexpected publisher update: %#v, %v", updated, err)
 	if _, err := agents.runtime.PublishOutput(ctx, agents.plannerToken, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "planner update"}); err != nil {
 		t.Fatal(err)
 	}
 	events, err := agents.runtime.Events(ctx, agents.scope.ScopeToken, 0, 100, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	foundPublished := false
 	for _, event := range events.Events {
 		if event.Type != "output.published" || event.SubjectID != stream.ID {
@@ -75,13 +57,9 @@ func TestOutputStreamsPublishBoundedOrderedValues(t *testing.T) {
 		}
 		foundPublished = true
 		data, err := json.Marshal(event)
-		if err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, err)
 		for _, protected := range []string{"building", "deployed", "planner update", "example.test"} {
-			if strings.Contains(string(data), protected) {
-				t.Fatalf("output event exposed value content: %s", data)
-			}
+			require(t, !strings.Contains(string(data), protected), "output event exposed value content: %s", data)
 		}
 	}
 	if !foundPublished {
@@ -94,63 +72,43 @@ func TestOutputPrincipalsHaveNarrowIndependentPermissions(t *testing.T) {
 	defer agents.runtime.Close()
 	ctx := context.Background()
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{Name: "build-status"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	otherStream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{Name: "other"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reader, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Dashboard", Permissions: []OutputPermission{OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	publisher, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Build service", Permissions: []OutputPermission{OutputPublish},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	_, err = agents.runtime.PublishOutput(ctx, reader.Credential, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "denied"})
 	requireCode(t, err, CodeUnauthenticated)
 	value, err := agents.runtime.PublishOutput(ctx, publisher.Credential, stream.ID, PublishOutputInput{
 		ContentType: OutputJSON, Value: map[string]any{"status": "ready"},
 	})
-	if err != nil || value.ProducerType != "principal" || value.ProducerID != publisher.Principal.ID {
-		t.Fatalf("unexpected principal publication: %#v, %v", value, err)
-	}
+	require(t, err == nil && value.ProducerType == "principal" && value.ProducerID == publisher.Principal.ID, "unexpected principal publication: %#v, %v", value, err)
 	_, err = agents.runtime.LatestOutput(ctx, publisher.Credential, stream.ID)
 	requireCode(t, err, CodeUnauthenticated)
 	latest, err := agents.runtime.LatestOutput(ctx, reader.Credential, stream.ID)
-	if err != nil || latest == nil || latest.Sequence != 1 {
-		t.Fatalf("reader could not read its stream: %#v, %v", latest, err)
-	}
+	require(t, err == nil && latest != nil && latest.Sequence == 1, "reader could not read its stream: %#v, %v", latest, err)
 	_, err = agents.runtime.LatestOutput(ctx, reader.Credential, otherStream.ID)
 	requireCode(t, err, CodeUnauthenticated)
 	_, err = agents.runtime.ListAgents(ctx, reader.Credential)
 	requireCode(t, err, CodePermissionDenied)
 	principals, err := agents.runtime.ListOutputPrincipals(ctx, agents.scope.ScopeToken)
-	if err != nil || len(principals) != 2 {
-		t.Fatalf("unexpected output principals: %#v, %v", principals, err)
-	}
+	require(t, err == nil && len(principals) == 2, "unexpected output principals: %#v, %v", principals, err)
 	data, err := json.Marshal(principals)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), reader.Credential) || strings.Contains(string(data), publisher.Credential) || strings.Contains(string(data), `"credential"`) {
-		t.Fatalf("principal list exposed a credential: %s", data)
-	}
+	requireNoError(t, err)
+	require(t, !strings.Contains(string(data), reader.Credential) && !strings.Contains(string(data), publisher.Credential) && !strings.Contains(string(data), `"credential"`), "principal list exposed a credential: %s", data)
 	if _, err := agents.runtime.SetOutputPrincipalEnabled(ctx, agents.scope.ScopeToken, reader.Principal.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	_, err = agents.runtime.LatestOutput(ctx, reader.Credential, stream.ID)
 	requireCode(t, err, CodeUnauthenticated)
 	rotated, err := agents.runtime.RotateOutputPrincipal(ctx, agents.scope.ScopeToken, reader.Principal.ID)
-	if err != nil || rotated.Credential == reader.Credential || rotated.Principal.Enabled {
-		t.Fatalf("unexpected principal rotation: %#v, %v", rotated, err)
-	}
+	require(t, err == nil && rotated.Credential != reader.Credential && !rotated.Principal.Enabled, "unexpected principal rotation: %#v, %v", rotated, err)
 	if _, err := agents.runtime.SetOutputPrincipalEnabled(ctx, agents.scope.ScopeToken, reader.Principal.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -168,39 +126,25 @@ func TestOutputStreamsPersistAndRemoveTheirDataAndCredentials(t *testing.T) {
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{
 		Name: "preview", PublisherAgentIDs: []string{agents.reviewer.AgentID},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reader, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Preview page", Permissions: []OutputPermission{OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.PublishOutput(ctx, agents.reviewerToken, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "ready"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := agents.runtime.Close(); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, agents.runtime.Close())
 	restarted, err := Open(database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer restarted.Close()
 	latest, err := restarted.LatestOutput(ctx, reader.Credential, stream.ID)
-	if err != nil || latest == nil || latest.Value != "ready" {
-		t.Fatalf("output did not survive restart: %#v, %v", latest, err)
-	}
-	if err := restarted.RemoveOutputStream(ctx, agents.scope.ScopeToken, stream.ID); err != nil {
-		t.Fatal(err)
-	}
+	require(t, err == nil && latest != nil && latest.Value == "ready", "output did not survive restart: %#v, %v", latest, err)
+	requireNoError(t, restarted.RemoveOutputStream(ctx, agents.scope.ScopeToken, stream.ID))
 	_, err = restarted.LatestOutput(ctx, reader.Credential, stream.ID)
 	requireCode(t, err, CodeUnauthenticated)
 	principals, err := restarted.ListOutputPrincipals(ctx, agents.scope.ScopeToken)
-	if err != nil || len(principals) != 0 {
-		t.Fatalf("stream removal left principals: %#v, %v", principals, err)
-	}
+	require(t, err == nil && len(principals) == 0, "stream removal left principals: %#v, %v", principals, err)
 	var valueCount int
 	if err := sqliteStore(t, restarted).db.QueryRow(`SELECT COUNT(*) FROM output_values WHERE stream_id=?`, stream.ID).Scan(&valueCount); err != nil || valueCount != 0 {
 		t.Fatalf("stream removal left values: %d, %v", valueCount, err)
@@ -214,9 +158,7 @@ func TestOutputPayloadLimitsAndPerPrincipalQuota(t *testing.T) {
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{
 		Name: "limited", PublisherAgentIDs: []string{agents.reviewer.AgentID},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	for _, input := range []PublishOutputInput{
 		{ContentType: OutputText, Value: map[string]any{"not": "text"}},
 		{ContentType: OutputContentType("image/png"), Value: "no"},
@@ -239,9 +181,7 @@ func TestOutputPayloadLimitsAndPerPrincipalQuota(t *testing.T) {
 	reader, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Limited reader", Permissions: []OutputPermission{OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := sqliteStore(t, agents.runtime).db.Exec(`INSERT INTO output_rate_usage(scope_id,principal_type,principal_id,window_start,read_count) VALUES(?,?,?,?,?),(?,?,?,?,?)`,
 		agents.scope.ScopeID, "principal", reader.Principal.ID, window, outputReadRate,
 		agents.scope.ScopeID, "principal", reader.Principal.ID, window+60000, outputReadRate); err != nil {
@@ -258,15 +198,11 @@ func TestOutputRoutesRequireExplicitBrowserOrigin(t *testing.T) {
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{
 		Name: "browser", PublisherAgentIDs: []string{agents.reviewer.AgentID},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reader, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Browser", Permissions: []OutputPermission{OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.PublishOutput(ctx, agents.reviewerToken, stream.ID, PublishOutputInput{ContentType: OutputText, Value: "ready"}); err != nil {
 		t.Fatal(err)
 	}

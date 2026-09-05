@@ -44,7 +44,9 @@ const (
 )
 
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	lock   *os.File
+	source string
 }
 
 type rowScanner interface {
@@ -52,26 +54,66 @@ type rowScanner interface {
 }
 
 func OpenStore(source string) (*Store, error) {
+	var lock *os.File
 	if source != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+			return nil, err
+		}
+		var err error
+		source, err = canonicalDatabasePath(source)
+		if err != nil {
+			return nil, err
+		}
+		lock, err = acquireFileLock(source + ".lock")
+		if err != nil {
+			return nil, err
+		}
+		file, err := os.OpenFile(source, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			lock.Close()
+			return nil, err
+		}
+		if err := file.Chmod(0o600); err != nil {
+			file.Close()
+			lock.Close()
+			return nil, err
+		}
+		if err := file.Close(); err != nil {
+			lock.Close()
 			return nil, err
 		}
 	}
 	db, err := sql.Open("sqlite", source)
 	if err != nil {
+		if lock != nil {
+			lock.Close()
+		}
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	store := &Store{db: db}
+	store := &Store{db: db, lock: lock, source: source}
 	if err := store.initialize(context.Background()); err != nil {
 		db.Close()
+		if lock != nil {
+			lock.Close()
+		}
+		return nil, err
+	}
+	if _, err := db.Exec(operationalIndexesSQL); err != nil {
+		store.Close()
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.lock != nil {
+		_ = s.lock.Close()
+	}
+	return err
+}
 
 func (s *Store) Backend() StorageBackend { return StorageBackendSQLite }
 
@@ -85,234 +127,16 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
+	if version == 2 {
+		return s.migrateV2(ctx)
+	}
 	if version != 0 && version != schemaVersion {
 		return fmt.Errorf("database schema %d does not match %d", version, schemaVersion)
 	}
 	if version == schemaVersion {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
-BEGIN IMMEDIATE;
-CREATE TABLE scopes (
-  scope_id TEXT PRIMARY KEY,
-  token_hash TEXT NOT NULL UNIQUE,
-	created_at INTEGER NOT NULL,
-	event_revision INTEGER NOT NULL DEFAULT 0,
-	event_floor_revision INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE agents (
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  agent_id TEXT NOT NULL,
-  display_name TEXT NOT NULL,
-  capabilities_json TEXT NOT NULL,
-  execution_id TEXT NOT NULL,
-  token_hash TEXT NOT NULL UNIQUE,
-  lifecycle TEXT NOT NULL CHECK(lifecycle IN ('starting','ready','working','idle','needs_input','offline')),
-  ready INTEGER NOT NULL CHECK(ready IN (0,1)),
-  lease_expires_at INTEGER NOT NULL,
-  registered_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY(scope_id, agent_id)
-);
-CREATE INDEX agents_scope_updated ON agents(scope_id, updated_at DESC);
-CREATE TABLE peer_links (
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  left_agent TEXT NOT NULL,
-  right_agent TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY(scope_id, left_agent, right_agent),
-  CHECK(left_agent < right_agent),
-  FOREIGN KEY(scope_id, left_agent) REFERENCES agents(scope_id, agent_id) ON DELETE CASCADE,
-  FOREIGN KEY(scope_id, right_agent) REFERENCES agents(scope_id, agent_id) ON DELETE CASCADE
-);
-CREATE TABLE messages (
-  message_id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  from_kind TEXT NOT NULL CHECK(from_kind IN ('agent','a2aPrincipal')),
-  from_id TEXT NOT NULL,
-  to_kind TEXT NOT NULL CHECK(to_kind IN ('agent','a2aPrincipal')),
-  to_id TEXT NOT NULL,
-  mode TEXT NOT NULL CHECK(mode IN ('notify','request','response')),
-  body TEXT NOT NULL,
-  context_json TEXT NOT NULL,
-  response_to TEXT,
-  idempotency_key TEXT,
-  request_hash TEXT NOT NULL,
-  state TEXT NOT NULL CHECK(state IN ('queued','reserved','delivered','acknowledged','expired')),
-  reservation_id TEXT,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER,
-  delivered_at INTEGER,
-  acknowledged_at INTEGER,
-  replied_at INTEGER,
-  response_message_id TEXT,
-  FOREIGN KEY(response_to) REFERENCES messages(message_id)
-);
-CREATE INDEX messages_inbox ON messages(scope_id, to_kind, to_id, state, created_at);
-CREATE INDEX messages_sender ON messages(scope_id, from_kind, from_id, created_at DESC);
-CREATE UNIQUE INDEX messages_idempotency ON messages(scope_id, from_kind, from_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
-CREATE TABLE reservations (
-  reservation_id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id) ON DELETE CASCADE
-);
-CREATE TABLE tasks (
-  task_id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	title TEXT NOT NULL,
-  description TEXT NOT NULL,
-	created_by TEXT,
-  claimed_by TEXT,
-  claimed_execution_id TEXT,
-  status TEXT NOT NULL CHECK(status IN ('open','claimed','done')),
-  dependencies_json TEXT NOT NULL,
-  note TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-	CHECK((status='open' AND claimed_by IS NULL AND claimed_execution_id IS NULL) OR (status!='open' AND claimed_by IS NOT NULL AND claimed_execution_id IS NOT NULL)),
-  FOREIGN KEY(scope_id, created_by) REFERENCES agents(scope_id, agent_id),
-  FOREIGN KEY(scope_id, claimed_by) REFERENCES agents(scope_id, agent_id)
-);
-CREATE INDEX tasks_scope_status ON tasks(scope_id, status, created_at);
-CREATE TABLE task_progress (
-  task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  sequence INTEGER NOT NULL CHECK(sequence>0),
-  agent_id TEXT NOT NULL,
-  execution_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('progress','note','blocker')),
-  text TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY(task_id, sequence),
-  FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
-);
-CREATE INDEX task_progress_scope_task ON task_progress(scope_id, task_id, sequence);
-CREATE TABLE escalations (
-  escalation_id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-  agent_id TEXT NOT NULL,
-  question TEXT NOT NULL,
-  options_json TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('pending','resolved','cancelled')),
-  answer TEXT,
-  created_at INTEGER NOT NULL,
-  resolved_at INTEGER,
-  FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
-);
-CREATE INDEX escalations_scope_status ON escalations(scope_id, status, created_at);
-CREATE TABLE events (
-	event_id TEXT PRIMARY KEY,
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	revision INTEGER NOT NULL CHECK(revision>0),
-	event_type TEXT NOT NULL,
-	subject_id TEXT NOT NULL,
-	attributes_json TEXT NOT NULL,
-	created_at INTEGER NOT NULL,
-	UNIQUE(scope_id, revision)
-);
-CREATE INDEX events_scope_revision ON events(scope_id, revision);
-CREATE INDEX events_scope_created ON events(scope_id, created_at);
-CREATE TABLE a2a_publications (
-	publication_id TEXT PRIMARY KEY,
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	agent_id TEXT NOT NULL,
-	enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL,
-	UNIQUE(scope_id, agent_id),
-	FOREIGN KEY(scope_id, agent_id) REFERENCES agents(scope_id, agent_id)
-);
-CREATE INDEX a2a_publications_scope_created ON a2a_publications(scope_id, created_at);
-CREATE TABLE a2a_tasks (
-	task_id TEXT PRIMARY KEY,
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	context_id TEXT NOT NULL,
-	principal_id TEXT NOT NULL,
-	publication_id TEXT NOT NULL REFERENCES a2a_publications(publication_id) ON DELETE CASCADE,
-	target_agent_id TEXT NOT NULL,
-	state TEXT NOT NULL CHECK(state IN ('submitted','working','input-required','completed','failed','canceled','rejected')),
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL,
-	FOREIGN KEY(scope_id,target_agent_id) REFERENCES agents(scope_id,agent_id)
-);
-CREATE INDEX a2a_tasks_principal_updated ON a2a_tasks(principal_id,updated_at DESC);
-CREATE INDEX a2a_tasks_scope_state ON a2a_tasks(scope_id,state,updated_at DESC);
-CREATE TABLE a2a_message_correlations (
-	principal_id TEXT NOT NULL,
-	client_message_id TEXT NOT NULL,
-	task_id TEXT NOT NULL REFERENCES a2a_tasks(task_id) ON DELETE CASCADE,
-	request_hash TEXT NOT NULL,
-	bus_request_message_id TEXT NOT NULL UNIQUE REFERENCES messages(message_id),
-	bus_response_message_id TEXT UNIQUE REFERENCES messages(message_id),
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL,
-	PRIMARY KEY(principal_id,client_message_id)
-);
-CREATE INDEX a2a_messages_task_created ON a2a_message_correlations(task_id,created_at,client_message_id);
-CREATE TABLE scoped_credentials (
-	credential_id TEXT PRIMARY KEY,
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	label TEXT NOT NULL,
-	token_hash TEXT NOT NULL UNIQUE,
-	enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL
-);
-CREATE INDEX scoped_credentials_scope_created ON scoped_credentials(scope_id, created_at);
-CREATE TABLE scoped_credential_grants (
-	credential_id TEXT NOT NULL REFERENCES scoped_credentials(credential_id) ON DELETE CASCADE,
-	resource_type TEXT NOT NULL,
-	resource_id TEXT NOT NULL,
-	permission TEXT NOT NULL,
-	PRIMARY KEY(credential_id, resource_type, resource_id, permission)
-);
-CREATE INDEX scoped_credential_grants_resource ON scoped_credential_grants(resource_type, resource_id, permission);
-CREATE TABLE output_streams (
-	stream_id TEXT PRIMARY KEY,
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	name TEXT NOT NULL,
-	retention_limit INTEGER NOT NULL CHECK(retention_limit BETWEEN 1 AND 10000),
-	sequence INTEGER NOT NULL DEFAULT 0,
-	floor_sequence INTEGER NOT NULL DEFAULT 0,
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL,
-	UNIQUE(scope_id,name)
-);
-CREATE INDEX output_streams_scope_created ON output_streams(scope_id,created_at);
-CREATE TABLE output_stream_publishers (
-	stream_id TEXT NOT NULL REFERENCES output_streams(stream_id) ON DELETE CASCADE,
-	scope_id TEXT NOT NULL,
-	agent_id TEXT NOT NULL,
-	PRIMARY KEY(stream_id,agent_id),
-	FOREIGN KEY(scope_id,agent_id) REFERENCES agents(scope_id,agent_id)
-);
-CREATE TABLE output_values (
-	stream_id TEXT NOT NULL REFERENCES output_streams(stream_id) ON DELETE CASCADE,
-	sequence INTEGER NOT NULL,
-	producer_type TEXT NOT NULL CHECK(producer_type IN ('agent','principal')),
-	producer_id TEXT NOT NULL,
-	content_type TEXT NOT NULL CHECK(content_type IN ('text/plain','application/json')),
-	value_json TEXT NOT NULL,
-	reference_json TEXT,
-	created_at INTEGER NOT NULL,
-	PRIMARY KEY(stream_id,sequence)
-);
-CREATE INDEX output_values_stream_created ON output_values(stream_id,created_at);
-CREATE TABLE output_rate_usage (
-	scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-	principal_type TEXT NOT NULL,
-	principal_id TEXT NOT NULL,
-	window_start INTEGER NOT NULL,
-	publish_count INTEGER NOT NULL DEFAULT 0,
-	read_count INTEGER NOT NULL DEFAULT 0,
-	PRIMARY KEY(scope_id,principal_type,principal_id,window_start)
-);
-CREATE INDEX output_rate_usage_window ON output_rate_usage(window_start);
-PRAGMA user_version=9;
-COMMIT;`)
+	_, err := s.db.ExecContext(ctx, "BEGIN IMMEDIATE;"+schemaSQL+"COMMIT;")
 	return err
 }
 
@@ -470,7 +294,7 @@ func (s *Store) RegisterAgent(ctx context.Context, scopeID string, input Registe
 	}
 	now := nowMillis()
 	leaseExpiresAt := now + input.LeaseMS
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return RegisterAgentResult{}, err
 	}
@@ -484,6 +308,12 @@ ON CONFLICT(scope_id,agent_id) DO UPDATE SET
  lease_expires_at=excluded.lease_expires_at, registered_at=excluded.registered_at, updated_at=excluded.updated_at`,
 		scopeID, agentID, input.DisplayName, capabilities, executionID, tokenDigest(agentToken), leaseExpiresAt, now, now)
 	if err != nil {
+		return RegisterAgentResult{}, err
+	}
+	if err := releaseAgentReservations(ctx, tx, scopeID, agentID); err != nil {
+		return RegisterAgentResult{}, err
+	}
+	if err := releaseStaleTaskClaims(ctx, tx, scopeID); err != nil {
 		return RegisterAgentResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE a2a_publications SET updated_at=? WHERE scope_id=? AND agent_id=?`, now, scopeID, agentID); err != nil {
@@ -567,12 +397,15 @@ func (s *Store) Agent(ctx context.Context, scopeID, agentID string) (Agent, erro
 }
 
 func (s *Store) Heartbeat(ctx context.Context, principal Principal, input HeartbeatInput) (Agent, bool, error) {
-	now := nowMillis()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return Agent{}, false, err
 	}
 	defer tx.Rollback()
+	now := nowMillis()
+	if err := requireCurrentExecution(ctx, tx, principal, now); err != nil {
+		return Agent{}, false, err
+	}
 	var previousLifecycle AgentLifecycle
 	var previousReady int
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,ready FROM agents WHERE scope_id=? AND agent_id=? AND execution_id=?`, principal.ScopeID, principal.AgentID, principal.ExecutionID).
@@ -660,7 +493,7 @@ func linkAgents(ctx context.Context, executor interface {
 }
 
 func (s *Store) LinkAgents(ctx context.Context, scopeID, left, right string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return err
 	}
@@ -953,11 +786,14 @@ func linkedAgents(ctx context.Context, tx *sql.Tx, scopeID, left, right string) 
 }
 
 func (s *Store) SendMessage(ctx context.Context, principal Principal, input SendMessageInput) (DeliveryReceipt, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return DeliveryReceipt{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return DeliveryReceipt{}, err
+	}
 	message, err := sendMessageTx(ctx, tx, principal.ScopeID, MessageParticipantAgent, principal.AgentID, input)
 	if err != nil {
 		return DeliveryReceipt{}, err
@@ -976,11 +812,14 @@ func nullableString(value string) any {
 }
 
 func (s *Store) Receipt(ctx context.Context, principal Principal, messageID string) (DeliveryReceipt, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return DeliveryReceipt{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return DeliveryReceipt{}, err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return DeliveryReceipt{}, err
 	}
@@ -1050,7 +889,7 @@ func requireCurrentExecution(ctx context.Context, tx *sql.Tx, principal Principa
 }
 
 func (s *Store) ReserveInbox(ctx context.Context, principal Principal, limit int) (*InboxReservation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1143,11 +982,14 @@ func (s *Store) NextInboxReservationExpiry(ctx context.Context, principal Princi
 }
 
 func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservationID string) ([]Message, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return nil, err
+	}
 	var expiresAt int64
 	err = tx.QueryRowContext(ctx, `SELECT expires_at FROM reservations WHERE reservation_id=? AND scope_id=? AND agent_id=?`, reservationID, principal.ScopeID, principal.AgentID).Scan(&expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1217,11 +1059,14 @@ func (s *Store) CommitInbox(ctx context.Context, principal Principal, reservatio
 }
 
 func (s *Store) ReleaseInbox(ctx context.Context, principal Principal, reservationID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return err
 	}
@@ -1232,11 +1077,14 @@ func (s *Store) ReleaseInbox(ctx context.Context, principal Principal, reservati
 }
 
 func (s *Store) AcknowledgeMessages(ctx context.Context, principal Principal, messageIDs []string) (int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return 0, err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return 0, err
 	}
@@ -1372,11 +1220,24 @@ func releaseStaleTaskClaims(ctx context.Context, tx *sql.Tx, scopeID string) err
 }
 
 func (s *Store) AddTask(ctx context.Context, scopeID, createdBy string, input AddTaskInput) (Task, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return s.addTask(ctx, scopeID, createdBy, nil, input)
+}
+
+func (s *Store) AddAgentTask(ctx context.Context, principal Principal, input AddTaskInput) (Task, error) {
+	return s.addTask(ctx, principal.ScopeID, principal.AgentID, &principal, input)
+}
+
+func (s *Store) addTask(ctx context.Context, scopeID, createdBy string, principal *Principal, input AddTaskInput) (Task, error) {
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if principal != nil {
+		if err := requireCurrentExecution(ctx, tx, *principal, nowMillis()); err != nil {
+			return Task{}, err
+		}
+	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE scope_id=? AND status!='done'`, scopeID).Scan(&count); err != nil {
 		return Task{}, err
@@ -1423,11 +1284,14 @@ func (s *Store) AddTask(ctx context.Context, scopeID, createdBy string, input Ad
 }
 
 func (s *Store) ClaimTask(ctx context.Context, principal Principal, taskID string) (Task, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return Task{}, err
+	}
 	if err := releaseStaleTaskClaims(ctx, tx, principal.ScopeID); err != nil {
 		return Task{}, err
 	}
@@ -1471,11 +1335,14 @@ func (s *Store) ClaimTask(ctx context.Context, principal Principal, taskID strin
 }
 
 func (s *Store) CompleteTask(ctx context.Context, principal Principal, taskID, note string) (Task, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return Task{}, err
+	}
 	now := nowMillis()
 	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='done',note=?,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
 		nullableString(note), now, taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
@@ -1502,11 +1369,14 @@ func (s *Store) CompleteTask(ctx context.Context, principal Principal, taskID, n
 }
 
 func (s *Store) ReleaseTask(ctx context.Context, principal Principal, taskID string) (Task, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return Task{}, err
+	}
 	now := nowMillis()
 	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status='open',claimed_by=NULL,claimed_execution_id=NULL,updated_at=? WHERE task_id=? AND scope_id=? AND status='claimed' AND claimed_by=? AND claimed_execution_id=?`,
 		now, taskID, principal.ScopeID, principal.AgentID, principal.ExecutionID)
@@ -1533,11 +1403,18 @@ func (s *Store) ReleaseTask(ctx context.Context, principal Principal, taskID str
 }
 
 func (s *Store) ListTasks(ctx context.Context, scopeID string, readyOnly bool) ([]Task, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	var total int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE scope_id=?", scopeID).Scan(&total); err != nil {
+		return nil, err
+	}
+	if total > maxListedTasks {
+		return nil, Errorf(CodeBackpressure, "Task history exceeds 10000 records; use /v1/tasks/page")
+	}
 	if err := releaseStaleTaskClaims(ctx, tx, scopeID); err != nil {
 		return nil, err
 	}
@@ -1626,11 +1503,14 @@ func escalationFrom(ctx context.Context, query interface {
 }
 
 func (s *Store) AskHuman(ctx context.Context, principal Principal, input AskHumanInput) (HumanEscalation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return HumanEscalation{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentExecution(ctx, tx, principal, nowMillis()); err != nil {
+		return HumanEscalation{}, err
+	}
 	var agentPending, scopePending int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM escalations WHERE scope_id=? AND agent_id=? AND status='pending'`, principal.ScopeID, principal.AgentID).Scan(&agentPending); err != nil {
 		return HumanEscalation{}, err
@@ -1693,7 +1573,7 @@ func (s *Store) ListEscalations(ctx context.Context, scopeID string) ([]HumanEsc
 }
 
 func (s *Store) ResolveEscalation(ctx context.Context, scopeID, escalationID, answer string) (HumanEscalation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return HumanEscalation{}, err
 	}

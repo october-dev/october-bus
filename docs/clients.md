@@ -1,6 +1,6 @@
 # Client SDKs
 
-October Bus currently ships a Go client in this module and a TypeScript client on npm.
+October Bus ships a Go client in this module and a TypeScript client on npm. From `0.1.0-next.14`, the npm package also installs the matching native Go daemon and exposes the `october-bus` command. SDK imports do not load or start the daemon.
 
 ## Credentials
 
@@ -83,7 +83,7 @@ latest, err := (bus.Client{Address: address, Token: reader.Credential}).LatestOu
 
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
 
-Use `bus.StartAgentSession` when an adapter needs registration, heartbeat, execution-replacement detection, and clean offline state managed outside the model loop.
+Use `bus.StartAgentSession` when an adapter needs registration, heartbeat, execution-replacement detection, and retirement managed outside the model loop. Close and context cancellation attempt to retire the execution and release claims/reservations; `Done` closes after cleanup is attempted. Inspect `Err` for heartbeat or cleanup failure. A replaced token can never retire its successor. This helper requires the retirement endpoint and is not backward compatible with the rc.4 daemon.
 
 ## TypeScript
 

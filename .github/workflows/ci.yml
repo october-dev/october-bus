@@ -28,6 +28,33 @@ jobs:
       - run: go build ./cmd/october-bus
       - run: go build ./cmd/october-bus-conformance
       - run: go run ./cmd/october-bus demo
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: sdk/typescript
+      - run: npm run build:native
+        working-directory: sdk/typescript
+      - run: npm run pack:distribution
+        working-directory: sdk/typescript
+      - run: npm run test:distribution
+        working-directory: sdk/typescript
+
+  npm-platforms:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm run build:native -- --all
+        working-directory: sdk/typescript
 
   typescript-sdk:
     runs-on: ubuntu-latest
@@ -45,6 +72,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:errors
+      - run: node --test ../../scripts/release-policy.test.mjs ../../scripts/publish-npm.test.mjs
       - run: npm audit --audit-level=high
 
   interoperability:

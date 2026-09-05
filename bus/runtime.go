@@ -18,6 +18,7 @@ const (
 type Runtime struct {
 	store              storageBackend
 	signals            *runtimeSignals
+	inboxWaiters       inboxWaitBudget
 	a2aPrincipalLimits A2APrincipalLimits
 }
 
@@ -84,6 +85,7 @@ func (r *Runtime) CreateScope(ctx context.Context, input CreateScopeInput) (Crea
 
 func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input RegisterAgentInput) (RegisterAgentResult, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return RegisterAgentResult{}, err
 	}
@@ -121,6 +123,7 @@ func (r *Runtime) RegisterAgent(ctx context.Context, scopeToken string, input Re
 
 func (r *Runtime) ListAgents(ctx context.Context, scopeToken string) ([]Agent, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +132,7 @@ func (r *Runtime) ListAgents(ctx context.Context, scopeToken string) ([]Agent, e
 
 func (r *Runtime) LinkAgents(ctx context.Context, scopeToken, left, right string) error {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return err
 	}
@@ -264,6 +268,11 @@ func (r *Runtime) ReserveInbox(ctx context.Context, agentToken string, limit int
 		return reservation, err
 	}
 	deadline := time.Now().Add(time.Duration(waitMS) * time.Millisecond)
+	releaseBudget, ok := r.inboxWaiters.acquire(principal)
+	if !ok {
+		return nil, Errorf(CodeBackpressure, "Inbox waiter limit is full")
+	}
+	defer releaseBudget()
 	key := signalKey{scopeID: principal.ScopeID, consumerID: principal.AgentID}
 	for {
 		signal, unsubscribe := r.signals.subscribe(key)
@@ -382,7 +391,7 @@ func (r *Runtime) AcknowledgeMessages(ctx context.Context, agentToken string, me
 }
 
 func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskInput) (Task, error) {
-	scopeID, createdBy, err := r.taskAuthority(ctx, agentToken)
+	scopeID, principal, err := r.taskAuthority(ctx, agentToken)
 	if err != nil {
 		return Task{}, err
 	}
@@ -400,7 +409,13 @@ func (r *Runtime) AddTask(ctx context.Context, agentToken string, input AddTaskI
 			return Task{}, err
 		}
 	}
-	result, err := r.store.AddTask(ctx, scopeID, createdBy, input)
+	var result Task
+	if principal == nil {
+		ctx = withScopeCredential(ctx, agentToken)
+		result, err = r.store.AddTask(ctx, scopeID, "", input)
+	} else {
+		result, err = r.store.AddAgentTask(ctx, *principal, input)
+	}
 	if err == nil {
 		r.notifyScope(scopeID)
 	}
@@ -490,9 +505,14 @@ func (r *Runtime) ListTaskProgress(ctx context.Context, token, taskID string) ([
 }
 
 func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) ([]Task, error) {
-	scopeID, _, err := r.taskAuthority(ctx, token)
+	scopeID, principal, err := r.taskAuthority(ctx, token)
 	if err != nil {
 		return nil, err
+	}
+	if principal == nil {
+		ctx = withScopeCredential(ctx, token)
+	} else {
+		ctx = withExecution(ctx, *principal)
 	}
 	result, err := r.store.ListTasks(ctx, scopeID, readyOnly)
 	if err == nil {
@@ -503,6 +523,7 @@ func (r *Runtime) ListTasks(ctx context.Context, token string, readyOnly bool) (
 
 func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (StorageSummary, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return StorageSummary{}, err
 	}
@@ -515,6 +536,7 @@ func (r *Runtime) StorageSummary(ctx context.Context, scopeToken string) (Storag
 
 func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input PruneScopeInput) (PruneScopeResult, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
@@ -529,16 +551,16 @@ func (r *Runtime) PruneScope(ctx context.Context, scopeToken string, input Prune
 	return result, err
 }
 
-func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID, createdBy string, err error) {
-	principal, agentErr := r.Principal(ctx, token)
+func (r *Runtime) taskAuthority(ctx context.Context, token string) (scopeID string, principal *Principal, err error) {
+	value, agentErr := r.Principal(ctx, token)
 	if agentErr == nil {
-		return principal.ScopeID, principal.AgentID, nil
+		return value.ScopeID, &value, nil
 	}
 	scopeID, scopeErr := r.store.AuthenticateScope(ctx, token)
 	if scopeErr == nil {
-		return scopeID, "", nil
+		return scopeID, nil, nil
 	}
-	return "", "", agentErr
+	return "", nil, agentErr
 }
 
 func (r *Runtime) scopeAuthority(ctx context.Context, token string) (string, error) {
@@ -595,6 +617,7 @@ func (r *Runtime) Escalation(ctx context.Context, agentToken, escalationID strin
 
 func (r *Runtime) ListEscalations(ctx context.Context, scopeToken string) ([]HumanEscalation, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -603,6 +626,7 @@ func (r *Runtime) ListEscalations(ctx context.Context, scopeToken string) ([]Hum
 
 func (r *Runtime) ResolveEscalation(ctx context.Context, scopeToken, escalationID, answer string) (HumanEscalation, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return HumanEscalation{}, err
 	}

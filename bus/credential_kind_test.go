@@ -17,15 +17,11 @@ func TestCredentialKindClassifiesOnlyCurrentNonScopeCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream, err := agents.runtime.CreateOutputStream(ctx, agents.scope.ScopeToken, CreateOutputStreamInput{Name: "credential-kind"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	outputPrincipal, err := agents.runtime.CreateOutputPrincipal(ctx, agents.scope.ScopeToken, CreateOutputPrincipalInput{
 		StreamID: stream.ID, Label: "Credential classifier", Permissions: []OutputPermission{OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 
 	for name, testCase := range map[string]struct {
 		token string
@@ -56,9 +52,7 @@ func TestCredentialKindClassifiesOnlyCurrentNonScopeCredentials(t *testing.T) {
 	}
 
 	replacement, err := agents.runtime.RegisterAgent(ctx, agents.scope.ScopeToken, RegisterAgentInput{ID: agents.planner.AgentID, DisplayName: "Replacement"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := store.db.ExecContext(ctx, `UPDATE agents SET lifecycle='offline' WHERE token_hash=?`, tokenDigest(replacement.AgentToken)); err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +79,7 @@ func TestCredentialKindClassifiesOnlyCurrentNonScopeCredentials(t *testing.T) {
 	}
 
 	rotated, err := agents.runtime.RotateA2APrincipal(ctx, agents.scope.ScopeToken, a2aPrincipal.Principal.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	for name, testCase := range map[string]struct {
 		token string
 		want  CredentialKind

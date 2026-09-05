@@ -430,7 +430,11 @@ func queryArchivedOutputs(ctx context.Context, tx *sql.Tx, scopeID string) ([]Ar
 			rows.Close()
 			return nil, nil, err
 		}
-		streams = append(streams, ArchivedOutputStream{ID: record.ID, Name: record.Name, RetentionLimit: record.RetentionLimit, CurrentSequence: record.CurrentSequence, MinimumCursor: record.MinimumCursor, PublisherAgentIDs: publishers[record.ID], CreatedAt: instant(record.CreatedAt), UpdatedAt: instant(record.UpdatedAt)})
+		ids := publishers[record.ID]
+		if ids == nil {
+			ids = []string{}
+		}
+		streams = append(streams, ArchivedOutputStream{ID: record.ID, Name: record.Name, RetentionLimit: record.RetentionLimit, CurrentSequence: record.CurrentSequence, MinimumCursor: record.MinimumCursor, PublisherAgentIDs: ids, CreatedAt: instant(record.CreatedAt), UpdatedAt: instant(record.UpdatedAt)})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -454,7 +458,7 @@ func queryArchivedOutputs(ctx context.Context, tx *sql.Tx, scopeID string) ([]Ar
 }
 
 func (s *Store) ExportScope(ctx context.Context, scopeID string) (ScopeArchive, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return ScopeArchive{}, err
 	}
@@ -476,6 +480,9 @@ func (s *Store) ExportScope(ctx context.Context, scopeID string) (ScopeArchive, 
 		return ScopeArchive{}, err
 	}
 	archive := ScopeArchive{Format: ScopeArchiveFormat, Version: ScopeArchiveVersion, ExportedAt: instant(nowMillis()), Scope: ArchivedScope{ID: scopeID, CreatedAt: instant(createdAt)}}
+	if err := checkPortableExportBudget(ctx, tx, scopeID); err != nil {
+		return ScopeArchive{}, err
+	}
 	if archive.Agents, err = queryArchivedAgents(ctx, tx, scopeID); err != nil {
 		return ScopeArchive{}, err
 	}
@@ -501,6 +508,12 @@ func (s *Store) ExportScope(ctx context.Context, scopeID string) (ScopeArchive, 
 		return ScopeArchive{}, err
 	}
 	if archive.OutputStreams, archive.OutputValues, err = queryArchivedOutputs(ctx, tx, scopeID); err != nil {
+		return ScopeArchive{}, err
+	}
+	if err := validateArchive(&archive); err != nil {
+		return ScopeArchive{}, err
+	}
+	if err := checkEncodedArchiveSize(archive); err != nil {
 		return ScopeArchive{}, err
 	}
 	return archive, tx.Commit()
@@ -1154,7 +1167,7 @@ func (s *Store) ImportScope(ctx context.Context, archive ScopeArchive) (ImportSc
 	if err != nil {
 		return ImportScopeResult{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return ImportScopeResult{}, err
 	}

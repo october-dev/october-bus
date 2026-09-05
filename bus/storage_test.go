@@ -25,9 +25,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	pairedResponse, err := agents.runtime.SendMessage(ctx, agents.reviewerToken, SendMessageInput{
 		To: "planner", Body: "paired response", Mode: MessageResponse, ResponseTo: pairedRequest.MessageID,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	setMessageState(t, agents, pairedRequest.MessageID, DeliveryAcknowledged, old, old)
 	setMessageState(t, agents, pairedResponse.MessageID, DeliveryAcknowledged, old, old)
 
@@ -37,9 +35,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	setMessageExpired(t, agents, expiredDelivered.MessageID, old, true)
 
 	independent, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Completed independent task"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.ClaimTask(ctx, agents.plannerToken, independent.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +43,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 		t.Fatal(err)
 	}
 	independent, err = agents.runtime.CompleteTask(ctx, agents.plannerToken, independent.ID, "done")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	dependency := addAndCompleteTestTask(t, ctx, agents, "Completed active dependency")
 	if _, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: "Still active", Dependencies: []string{dependency.ID}}); err != nil {
 		t.Fatal(err)
@@ -59,9 +53,7 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	}
 
 	resolved, err := agents.runtime.AskHuman(ctx, agents.plannerToken, AskHumanInput{Question: "Resolved question"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.ResolveEscalation(ctx, agents.scope.ScopeToken, resolved.ID, "yes"); err != nil {
 		t.Fatal(err)
 	}
@@ -73,29 +65,17 @@ func TestStorageSummaryAndRetentionPreserveActiveObligations(t *testing.T) {
 	}
 
 	summary, err := agents.runtime.StorageSummary(ctx, agents.scope.ScopeToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if summary.ScopeID != agents.scope.ScopeID || summary.TotalEstimatedBytes == 0 || len(summary.Records) == 0 {
-		t.Fatalf("unexpected storage summary: %#v", summary)
-	}
+	requireNoError(t, err)
+	require(t, summary.ScopeID == agents.scope.ScopeID && summary.TotalEstimatedBytes != 0 && len(summary.Records) != 0, "unexpected storage summary: %#v", summary)
 
 	dryRun, err := agents.runtime.PruneScope(ctx, agents.scope.ScopeToken, PruneScopeInput{Before: cutoff})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	want := RetentionCounts{Messages: 4, Tasks: 1, TaskProgress: 1, Escalations: 1}
-	if !dryRun.DryRun || dryRun.Records != want {
-		t.Fatalf("unexpected dry run: %#v", dryRun)
-	}
+	require(t, dryRun.DryRun && dryRun.Records == want, "unexpected dry run: %#v", dryRun)
 
 	result, err := agents.runtime.PruneScope(ctx, agents.scope.ScopeToken, PruneScopeInput{Before: cutoff, Execute: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.DryRun || result.Records != want {
-		t.Fatalf("unexpected retention result: %#v", result)
-	}
+	requireNoError(t, err)
+	require(t, !result.DryRun && result.Records == want, "unexpected retention result: %#v", result)
 	for _, id := range []string{oldNotify.MessageID, pairedRequest.MessageID, pairedResponse.MessageID, expiredUndelivered.MessageID} {
 		requireRowCount(t, agents, "messages", "message_id", id, 0)
 	}
@@ -124,9 +104,7 @@ func TestRetentionRequiresScopeAuthorityAndValidCutoff(t *testing.T) {
 func sendTestMessage(t *testing.T, ctx context.Context, agents testAgents, input SendMessageInput) DeliveryReceipt {
 	t.Helper()
 	receipt, err := agents.runtime.SendMessage(ctx, agents.plannerToken, input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	return receipt
 }
 
@@ -158,16 +136,12 @@ func setMessageExpired(t *testing.T, agents testAgents, id string, expiresAt int
 func addAndCompleteTestTask(t *testing.T, ctx context.Context, agents testAgents, title string) Task {
 	t.Helper()
 	task, err := agents.runtime.AddTask(ctx, agents.plannerToken, AddTaskInput{Title: title})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.ClaimTask(ctx, agents.plannerToken, task.ID); err != nil {
 		t.Fatal(err)
 	}
 	task, err = agents.runtime.CompleteTask(ctx, agents.plannerToken, task.ID, "done")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	return task
 }
 
@@ -175,10 +149,6 @@ func requireRowCount(t *testing.T, agents testAgents, table, column, id string, 
 	t.Helper()
 	query := `SELECT COUNT(*) FROM ` + table + ` WHERE ` + column + `=?`
 	var count int
-	if err := sqliteStore(t, agents.runtime).db.QueryRow(query, id).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != want {
-		t.Fatalf("%s %s count = %d, want %d", table, id, count, want)
-	}
+	requireNoError(t, sqliteStore(t, agents.runtime).db.QueryRow(query, id).Scan(&count))
+	require(t, count == want, "%s %s count = %d, want %d", table, id, count, want)
 }

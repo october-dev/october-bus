@@ -33,19 +33,21 @@ type ServerOptions struct {
 }
 
 type Server struct {
-	runtime      *Runtime
-	options      ServerOptions
-	waitContext  context.Context
-	cancelWaits  context.CancelFunc
-	httpServer   *http.Server
-	listener     net.Listener
-	mcpHandler   http.Handler
-	router       http.Handler
-	address      string
-	closeOnce    sync.Once
-	serveDone    chan error
-	shutdown     chan struct{}
-	shutdownOnce sync.Once
+	runtime         *Runtime
+	options         ServerOptions
+	waitContext     context.Context
+	cancelWaits     context.CancelFunc
+	httpServer      *http.Server
+	listener        net.Listener
+	mcpHandler      http.Handler
+	router          http.Handler
+	address         string
+	closeOnce       sync.Once
+	serveDone       chan error
+	shutdown        chan struct{}
+	shutdownOnce    sync.Once
+	requests        chan struct{}
+	controlRequests chan struct{}
 }
 
 type mcpTokenKey struct{}
@@ -62,6 +64,8 @@ func NewServer(runtime *Runtime, options ServerOptions) *Server {
 		runtime: runtime, options: options,
 		waitContext: waitContext, cancelWaits: cancelWaits,
 		serveDone: make(chan error, 1), shutdown: make(chan struct{}),
+		requests:        make(chan struct{}, maxConcurrentRequests),
+		controlRequests: make(chan struct{}, 32),
 	}
 	server.mcpHandler = mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		token, _ := request.Context().Value(mcpTokenKey{}).(string)
@@ -211,6 +215,19 @@ func writeFailure(response http.ResponseWriter, err error) {
 }
 
 func (s *Server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	budget := s.requests
+	switch request.URL.Path {
+	case "/v1/me/heartbeat", "/v1/me/retire", "/health", "/health/live", "/health/ready", "/v1/admin/shutdown":
+		budget = s.controlRequests
+	}
+	select {
+	case budget <- struct{}{}:
+		defer func() { <-budget }()
+	default:
+		response.Header().Set("Retry-After", "1")
+		writeFailure(response, Errorf(CodeBackpressure, "Concurrent request limit is full"))
+		return
+	}
 	s.router.ServeHTTP(response, request)
 }
 

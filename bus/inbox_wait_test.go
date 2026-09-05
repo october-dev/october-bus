@@ -68,16 +68,12 @@ func TestReserveInboxWakesForDurableMessage(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	receipt, err := agents.runtime.SendMessage(ctx, agents.plannerToken, SendMessageInput{To: "reviewer", Body: "Wake up"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	select {
 	case err := <-failure:
 		t.Fatal(err)
 	case reservation := <-result:
-		if reservation == nil || len(reservation.Messages) != 1 || reservation.Messages[0].ID != receipt.MessageID {
-			t.Fatalf("unexpected reservation: %#v", reservation)
-		}
+		require(t, reservation != nil && len(reservation.Messages) == 1 && reservation.Messages[0].ID == receipt.MessageID, "unexpected reservation: %#v", reservation)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
@@ -136,9 +132,7 @@ func TestCommitInboxDoesNotWakeConcurrentWaiter(t *testing.T) {
 		t.Fatal(err)
 	}
 	reservation, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 0)
-	if err != nil || reservation == nil {
-		t.Fatalf("unexpected initial reservation: %#v, %v", reservation, err)
-	}
+	require(t, err == nil && reservation != nil, "unexpected initial reservation: %#v, %v", reservation, err)
 
 	waitContext, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -154,9 +148,7 @@ func TestCommitInboxDoesNotWakeConcurrentWaiter(t *testing.T) {
 
 	select {
 	case err := <-waitDone:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("commit woke concurrent waiter: %v", err)
-		}
+		require(t, errors.Is(err, context.DeadlineExceeded), "commit woke concurrent waiter: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("concurrent waiter did not honor cancellation")
 	}
@@ -167,9 +159,7 @@ func TestReserveInboxTimesOutWithoutReservation(t *testing.T) {
 	defer agents.runtime.Close()
 	started := time.Now()
 	reservation, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 40)
-	if err != nil || reservation != nil {
-		t.Fatalf("unexpected wait result: %#v, %v", reservation, err)
-	}
+	require(t, err == nil && reservation == nil, "unexpected wait result: %#v, %v", reservation, err)
 	if elapsed := time.Since(started); elapsed < 25*time.Millisecond || elapsed > time.Second {
 		t.Fatalf("unexpected wait duration: %s", elapsed)
 	}
@@ -191,9 +181,7 @@ func TestCanceledInboxWaitDoesNotConsumeLaterMessage(t *testing.T) {
 	cancel()
 	select {
 	case err := <-failure:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("expected cancellation, got %v", err)
-		}
+		require(t, errors.Is(err, context.Canceled), "expected cancellation, got %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("inbox wait did not stop after cancellation")
 	}
@@ -202,13 +190,9 @@ func TestCanceledInboxWaitDoesNotConsumeLaterMessage(t *testing.T) {
 	}
 
 	receipt, err := agents.runtime.SendMessage(context.Background(), agents.plannerToken, SendMessageInput{To: "reviewer", Body: "Still available"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reservation, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 0)
-	if err != nil || reservation == nil || len(reservation.Messages) != 1 || reservation.Messages[0].ID != receipt.MessageID {
-		t.Fatalf("canceled wait consumed work: %#v, %v", reservation, err)
-	}
+	require(t, err == nil && reservation != nil && len(reservation.Messages) == 1 && reservation.Messages[0].ID == receipt.MessageID, "canceled wait consumed work: %#v, %v", reservation, err)
 }
 
 func TestInboxWaitStopsWhenExecutionIsReplaced(t *testing.T) {
@@ -252,20 +236,14 @@ func TestInboxWaitRechecksWhenReservationExpires(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	defer agents.runtime.Close()
 	receipt, err := agents.runtime.SendMessage(context.Background(), agents.plannerToken, SendMessageInput{To: "reviewer", Body: "Redeliver"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	first, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 0)
-	if err != nil || first == nil {
-		t.Fatalf("unexpected initial reservation: %#v, %v", first, err)
-	}
+	require(t, err == nil && first != nil, "unexpected initial reservation: %#v, %v", first, err)
 	if _, err := sqliteStore(t, agents.runtime).db.Exec(`UPDATE reservations SET expires_at=? WHERE reservation_id=?`, nowMillis()+60, first.ID); err != nil {
 		t.Fatal(err)
 	}
 	redelivery, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 2000)
-	if err != nil || redelivery == nil || len(redelivery.Messages) != 1 || redelivery.Messages[0].ID != receipt.MessageID {
-		t.Fatalf("expired reservation did not wake delivery: %#v, %v", redelivery, err)
-	}
+	require(t, err == nil && redelivery != nil && len(redelivery.Messages) == 1 && redelivery.Messages[0].ID == receipt.MessageID, "expired reservation did not wake delivery: %#v, %v", redelivery, err)
 }
 
 func TestInboxWaitBoundsAreValidated(t *testing.T) {
@@ -281,9 +259,7 @@ func TestServerStopCancelsInboxWait(t *testing.T) {
 	agents := setupAgents(t, ":memory:")
 	server := NewServer(agents.runtime, ServerOptions{AdminToken: "inbox-wait-admin"})
 	address, err := server.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	waitDone := make(chan struct {
 		reservation *InboxReservation
 		err         error
@@ -298,9 +274,7 @@ func TestServerStopCancelsInboxWait(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := server.Stop(stopContext); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, server.Stop(stopContext))
 	select {
 	case result := <-waitDone:
 		if result.err != nil || result.reservation != nil {

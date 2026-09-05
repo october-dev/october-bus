@@ -49,6 +49,8 @@ An adapter MUST report only states it can prove. A generic process launcher MAY 
 
 An `offline` heartbeat MUST set `ready=false`.
 
+Offline presence does not end the execution lease. Retirement is a separate idempotent operation that ends authority and releases claims and inbox reservations transactionally. A retired token MUST NOT renew its lease. A replaced token MUST NOT retire its successor. Managed sessions MUST serialize lifecycle writes with retirement and attempt cleanup when startup fails after successful registration.
+
 ### Capabilities
 
 An agent MAY declare up to 64 capabilities. Capability names use the agent-ID character rules. Names MUST be unique within one declaration. Descriptions are optional and limited to 512 bytes.

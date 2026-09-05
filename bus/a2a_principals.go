@@ -19,7 +19,7 @@ func a2aPrincipalFrom(record scopedCredentialRecord, publicationID string) A2APr
 }
 
 func (s *Store) CreateA2APrincipal(ctx context.Context, scopeID string, input CreateA2APrincipalInput) (IssuedA2APrincipal, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -73,7 +73,7 @@ ORDER BY c.created_at,c.credential_id`, scopeID, a2aPublicationResource, a2aInvo
 }
 
 func (s *Store) ListA2APrincipalUsage(ctx context.Context, scopeID string, limits A2APrincipalLimits) ([]A2APrincipalUsage, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ WHERE c.scope_id=? AND c.credential_id=? AND g.resource_type=? AND g.permission=
 }
 
 func (s *Store) RotateA2APrincipal(ctx context.Context, scopeID, principalID string) (IssuedA2APrincipal, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -156,7 +156,7 @@ func (s *Store) RotateA2APrincipal(ctx context.Context, scopeID, principalID str
 }
 
 func (s *Store) SetA2APrincipalEnabled(ctx context.Context, scopeID, principalID string, enabled bool) (A2APrincipal, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return A2APrincipal{}, err
 	}
@@ -201,11 +201,30 @@ func (s *Store) AuthenticateA2APrincipal(ctx context.Context, credential, public
 		}
 		return A2APrincipal{}, Errorf(CodeUnauthenticated, "Invalid scoped credential")
 	}
-	return a2aPrincipalFrom(record, publicationID), nil
+	principal := a2aPrincipalFrom(record, publicationID)
+	_, secret, _ := splitScopedCredential(credential)
+	principal.tokenHash = tokenDigest(secret)
+	return principal, nil
+}
+
+// Fence both revocation and rotation in the protected operation's transaction.
+func requireCurrentA2APrincipal(ctx context.Context, tx *sql.Tx, principal A2APrincipal) error {
+	var digest string
+	err := tx.QueryRowContext(ctx, `SELECT c.token_hash FROM scoped_credentials c
+JOIN scoped_credential_grants g ON g.credential_id=c.credential_id
+JOIN a2a_publications p ON p.publication_id=g.resource_id AND p.scope_id=c.scope_id
+WHERE c.credential_id=? AND c.scope_id=? AND c.enabled=1 AND p.enabled=1
+AND g.resource_type=? AND g.resource_id=? AND g.permission=?`, principal.ID, principal.ScopeID,
+		a2aPublicationResource, principal.PublicationID, a2aInvokePermission).Scan(&digest)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (principal.tokenHash == "" || !secureEqual(digest, principal.tokenHash))) {
+		return Errorf(CodeUnauthenticated, "A2A credential is no longer current")
+	}
+	return err
 }
 
 func (r *Runtime) CreateA2APrincipal(ctx context.Context, scopeToken string, input CreateA2APrincipalInput) (IssuedA2APrincipal, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -224,6 +243,7 @@ func (r *Runtime) CreateA2APrincipal(ctx context.Context, scopeToken string, inp
 
 func (r *Runtime) ListA2APrincipals(ctx context.Context, scopeToken string) ([]A2APrincipal, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +252,7 @@ func (r *Runtime) ListA2APrincipals(ctx context.Context, scopeToken string) ([]A
 
 func (r *Runtime) ListA2APrincipalUsage(ctx context.Context, scopeToken string) ([]A2APrincipalUsage, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +261,7 @@ func (r *Runtime) ListA2APrincipalUsage(ctx context.Context, scopeToken string) 
 
 func (r *Runtime) RotateA2APrincipal(ctx context.Context, scopeToken, principalID string) (IssuedA2APrincipal, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return IssuedA2APrincipal{}, err
 	}
@@ -255,6 +277,7 @@ func (r *Runtime) RotateA2APrincipal(ctx context.Context, scopeToken, principalI
 
 func (r *Runtime) SetA2APrincipalEnabled(ctx context.Context, scopeToken, principalID string, enabled bool) (A2APrincipal, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return A2APrincipal{}, err
 	}

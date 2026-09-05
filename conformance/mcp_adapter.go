@@ -560,6 +560,10 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 			stopClean()
 			return err
 		}
+		if _, err := cleanSession.Client.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true, LeaseMS: 30000}); err == nil {
+			stopClean()
+			return errors.New("closed execution retained heartbeat authority")
+		}
 		stopClean()
 		agents, err := owner.ListAgents(ctx)
 		if err != nil {
@@ -570,35 +574,26 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 			return fmt.Errorf("clean worker did not go offline: %#v, %v", cleanAgent, err)
 		}
 
-		crashContext, stopCrash := context.WithCancel(ctx)
-		crashSession, err := bus.StartAgentSession(crashContext, bus.AgentSessionOptions{
-			Address: options.Address, ScopeToken: scope.ScopeToken,
-			Registration:      bus.RegisterAgentInput{ID: "crash-worker", DisplayName: "Crash Worker", LeaseMS: 30000},
-			HeartbeatInterval: 100 * time.Millisecond, InitialLifecycle: bus.LifecycleReady, InitialReady: true,
-		})
+		// Register without a managed heartbeat/retirement helper: this scenario
+		// must exercise unclean lease expiry, not graceful context cancellation.
+		crashRegistration, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "crash-worker", DisplayName: "Crash Worker", LeaseMS: 30000})
 		if err != nil {
-			stopCrash()
 			return err
 		}
-		crashAdapter, err := connectAdapter(ctx, options, scope.ScopeToken, crashSession.Registration)
+		crashAdapter, err := connectAdapter(ctx, options, scope.ScopeToken, crashRegistration)
 		if err != nil {
-			stopCrash()
 			return err
 		}
 		logs = append(logs, crashAdapter.stderr)
 		task, err := callTool[bus.Task](ctx, crashAdapter.session, "add_task", map[string]any{"title": "Recover after expiry"})
 		if err != nil {
 			_ = crashAdapter.close()
-			stopCrash()
 			return err
 		}
 		if _, err := callTool[bus.Task](ctx, crashAdapter.session, "claim_task", map[string]any{"taskId": task.ID}); err != nil {
 			_ = crashAdapter.close()
-			stopCrash()
 			return err
 		}
-		stopCrash()
-		<-crashSession.Done()
 		if err := crashAdapter.close(); err != nil {
 			return err
 		}

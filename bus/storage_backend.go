@@ -10,14 +10,19 @@ type storageBackend interface {
 	Backend() StorageBackend
 	Ping(context.Context) error
 	Close() error
+	Backup(context.Context, string) error
 
 	CreateScope(context.Context, string) (CreateScopeResult, error)
+	ListScopes(context.Context) ([]ScopeInfo, error)
+	RotateScopeToken(context.Context, string) (CreateScopeResult, error)
+	DeleteScope(context.Context, string) (bool, error)
 	AuthenticateScope(context.Context, string) (string, error)
 	CredentialKind(context.Context, string) (CredentialKind, error)
 	RegisterAgent(context.Context, string, RegisterAgentInput) (RegisterAgentResult, error)
 	AuthenticateAgent(context.Context, string) (Principal, error)
 	Agent(context.Context, string, string) (Agent, error)
 	Heartbeat(context.Context, Principal, HeartbeatInput) (Agent, bool, error)
+	RetireAgent(context.Context, string) (Principal, error)
 	ListAgents(context.Context, string) ([]Agent, error)
 	LinkAgents(context.Context, string, string, string) error
 	ListPeers(context.Context, Principal) ([]Agent, error)
@@ -31,10 +36,12 @@ type storageBackend interface {
 	AcknowledgeMessages(context.Context, Principal, []string) (int64, error)
 
 	AddTask(context.Context, string, string, AddTaskInput) (Task, error)
+	AddAgentTask(context.Context, Principal, AddTaskInput) (Task, error)
 	ClaimTask(context.Context, Principal, string) (Task, error)
 	ReleaseTask(context.Context, Principal, string) (Task, error)
 	CompleteTask(context.Context, Principal, string, string) (Task, error)
 	ListTasks(context.Context, string, bool) ([]Task, error)
+	TaskPage(context.Context, string, string, int) (TaskPage, error)
 	AddTaskProgress(context.Context, Principal, string, AddTaskProgressInput) (TaskProgress, error)
 	ListTaskProgress(context.Context, string, string) ([]TaskProgress, error)
 

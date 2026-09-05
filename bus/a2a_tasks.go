@@ -84,11 +84,14 @@ func a2aMessageRequestHash(input AcceptA2AMessageInput) string {
 }
 
 func (s *Store) AcceptA2AMessage(ctx context.Context, principal A2APrincipal, limits A2APrincipalLimits, input AcceptA2AMessageInput) (A2ATaskCorrelation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return A2ATaskCorrelation{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentA2APrincipal(ctx, tx, principal); err != nil {
+		return A2ATaskCorrelation{}, err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return A2ATaskCorrelation{}, err
 	}
@@ -134,6 +137,16 @@ WHERE correlations.principal_id=? AND tasks.principal_id=? AND tasks.state NOT I
 	}
 	if unfinishedBytes+int64(len(input.Body)) > limits.ByteLimit {
 		return A2ATaskCorrelation{}, Errorf(CodeBackpressure, "Remote principal unfinished byte limit is full")
+	}
+	// Reserve half the active message slots for local work even when a scope
+	// owner has issued many individually bounded remote credentials.
+	var remoteMessages, remoteBytes int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(body AS BLOB))),0)
+FROM messages WHERE scope_id=? AND from_kind='a2aPrincipal' AND state NOT IN ('acknowledged','expired')`, principal.ScopeID).Scan(&remoteMessages, &remoteBytes); err != nil {
+		return A2ATaskCorrelation{}, err
+	}
+	if remoteMessages >= maxRemoteBacklogMessages || remoteBytes+int64(len(input.Body)) > maxRemoteBacklogBytes {
+		return A2ATaskCorrelation{}, Errorf(CodeBackpressure, "Scope remote message budget is full")
 	}
 	now := nowMillis()
 	taskID := input.TaskID
@@ -213,11 +226,14 @@ WHERE correlations.principal_id=? AND tasks.principal_id=? AND tasks.state NOT I
 }
 
 func (s *Store) A2ATask(ctx context.Context, principal A2APrincipal, taskID string) (A2ATaskCorrelation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return A2ATaskCorrelation{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentA2APrincipal(ctx, tx, principal); err != nil {
+		return A2ATaskCorrelation{}, err
+	}
 	if err := expireMessages(ctx, tx, principal.ScopeID, nowMillis()); err != nil {
 		return A2ATaskCorrelation{}, err
 	}
@@ -269,11 +285,14 @@ func validA2ATaskTransition(from, to A2ATaskState) bool {
 }
 
 func (s *Store) SetA2ATaskState(ctx context.Context, principal A2APrincipal, taskID string, state A2ATaskState) (A2ATaskCorrelation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return A2ATaskCorrelation{}, err
 	}
 	defer tx.Rollback()
+	if err := requireCurrentA2APrincipal(ctx, tx, principal); err != nil {
+		return A2ATaskCorrelation{}, err
+	}
 	task, err := loadA2ATask(ctx, tx, principal.ID, taskID)
 	if err != nil {
 		return A2ATaskCorrelation{}, err

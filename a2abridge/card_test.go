@@ -24,12 +24,8 @@ func TestAgentCardMapsPublicAgentFields(t *testing.T) {
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Name != "Reviewer" || card.Version != "1.2.3" || len(card.Skills) != 1 {
-		t.Fatalf("unexpected card: %#v", card)
-	}
+	requireNoError(t, err)
+	require(t, card.Name == "Reviewer" && card.Version == "1.2.3" && len(card.Skills) == 1, "unexpected card: %#v", card)
 	if card.Skills[0].ID != "code_review" || card.Skills[0].Description != "Reviews code changes." {
 		t.Fatalf("unexpected skills: %#v", card.Skills)
 	}
@@ -40,13 +36,9 @@ func TestAgentCardMapsPublicAgentFields(t *testing.T) {
 		t.Fatalf("bearer security scheme is missing: %#v", card.SecuritySchemes)
 	}
 	encoded, err := json.Marshal(card)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	for _, privateField := range []string{"executionId", "agentId", "scopeId", "scopeToken", "agentToken"} {
-		if strings.Contains(string(encoded), privateField) {
-			t.Fatalf("card contains private field %q", privateField)
-		}
+		require(t, !strings.Contains(string(encoded), privateField), "card contains private field %q", privateField)
 	}
 }
 
@@ -74,100 +66,29 @@ func TestAgentCardRequiresSecureRemoteURL(t *testing.T) {
 	}
 }
 
-func TestAgentCardProviderFields(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL:         "https://agents.example.com/reviewer",
-		ProviderOrganization: "Example Labs",
-		ProviderURL:          "https://example.com",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Provider == nil {
-		t.Fatal("Provider is nil, want populated")
-	}
-	if card.Provider.Org != "Example Labs" {
-		t.Errorf("Provider.Org = %q, want %q", card.Provider.Org, "Example Labs")
-	}
-	if card.Provider.URL != "https://example.com" {
-		t.Errorf("Provider.URL = %q, want %q", card.Provider.URL, "https://example.com")
+func TestAgentCardRejectsIncompleteProvider(t *testing.T) {
+	for _, tc := range []struct{ name, organization, url, want string }{
+		{"missing-url", "Example Labs", "", "must be set together"},
+		{"missing-organization", "", "https://example.com", "must be set together"},
+		{"blank-organization", "   ", "https://example.com", "must not be blank"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, a2abridge.CardOptions{
+				InterfaceURL:         "https://agents.example.com/reviewer",
+				ProviderOrganization: tc.organization, ProviderURL: tc.url,
+			})
+			require(t, err != nil && strings.Contains(err.Error(), tc.want), "expected %q, got %v", tc.want, err)
+		})
 	}
 }
 
-func TestAgentCardRejectsProviderOrganizationWithoutURL(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL:         "https://agents.example.com/reviewer",
-		ProviderOrganization: "Example Labs",
-	})
-	if err == nil || !strings.Contains(err.Error(), "must be set together") {
-		t.Fatalf("expected incomplete-provider error, got %v", err)
-	}
-}
-
-func TestAgentCardRejectsProviderURLWithoutOrganization(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL: "https://agents.example.com/reviewer",
-		ProviderURL:  "https://example.com",
-	})
-	if err == nil || !strings.Contains(err.Error(), "must be set together") {
-		t.Fatalf("expected incomplete-provider error, got %v", err)
-	}
-}
-
-func TestAgentCardRejectsBlankProviderOrganization(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	_, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL:         "https://agents.example.com/reviewer",
-		ProviderOrganization: "   ",
-		ProviderURL:          "https://example.com",
-	})
-	if err == nil || !strings.Contains(err.Error(), "must not be blank") {
-		t.Fatalf("expected blank-organization error, got %v", err)
-	}
-}
-
-func TestAgentCardProviderOmittedWhenUnset(t *testing.T) {
+func TestAgentCardOptionalFieldsOmittedWhenUnset(t *testing.T) {
 	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
 	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.Provider != nil {
-		t.Errorf("Provider = %+v, want nil when neither ProviderOrganization nor ProviderURL is set", card.Provider)
-	}
-}
-
-func TestAgentCardDocumentationAndIconURLs(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL:     "https://agents.example.com/reviewer",
-		DocumentationURL: "https://docs.example.com/reviewer",
-		IconURL:          "https://cdn.example.com/reviewer.png",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if card.DocumentationURL != "https://docs.example.com/reviewer" {
-		t.Errorf("DocumentationURL = %q, want %q", card.DocumentationURL, "https://docs.example.com/reviewer")
-	}
-	if card.IconURL != "https://cdn.example.com/reviewer.png" {
-		t.Errorf("IconURL = %q, want %q", card.IconURL, "https://cdn.example.com/reviewer.png")
-	}
-}
-
-func TestAgentCardDocumentationAndIconOmittedWhenUnset(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	card, err := a2abridge.NewAgentCard(agent, a2abridge.CardOptions{
-		InterfaceURL: "https://agents.example.com/reviewer",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
+	require(t, card.Provider == nil, "provider should be omitted: %#v", card.Provider)
 	if card.DocumentationURL != "" {
 		t.Errorf("DocumentationURL = %q, want empty", card.DocumentationURL)
 	}
@@ -176,9 +97,7 @@ func TestAgentCardDocumentationAndIconOmittedWhenUnset(t *testing.T) {
 	}
 	// Confirm the omitted fields stay absent from the public JSON.
 	encoded, err := json.Marshal(card)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	for _, unwanted := range []string{"\"documentationUrl\"", "\"iconUrl\"", "\"provider\""} {
 		if strings.Contains(string(encoded), unwanted) {
 			t.Errorf("encoded card contains %q but should omit it: %s", unwanted, encoded)
@@ -190,72 +109,22 @@ func TestAgentCardDocumentationAndIconOmittedWhenUnset(t *testing.T) {
 // every field that uses it. Each case must return a clear, field-prefixed
 // error and must not produce a card.
 func TestAgentCardRejectsInvalidPublicURL(t *testing.T) {
-	agent := a2abridge.AgentProfile{DisplayName: "Reviewer"}
-	cases := []struct {
+	for _, tc := range []struct {
 		name    string
 		options a2abridge.CardOptions
 		wantErr string
 	}{
-		{
-			name: "provider-url-credentials",
-			options: a2abridge.CardOptions{
-				InterfaceURL:         "https://agents.example.com/reviewer",
-				ProviderOrganization: "Example Labs",
-				ProviderURL:          "https://user:placeholder@example.com",
-			},
-			wantErr: "providerUrl",
-		},
-		{
-			name: "documentation-url-file-scheme",
-			options: a2abridge.CardOptions{
-				InterfaceURL:     "https://agents.example.com/reviewer",
-				DocumentationURL: "file:///etc/passwd",
-			},
-			wantErr: "documentationUrl",
-		},
-		{
-			name: "icon-url-query-string",
-			options: a2abridge.CardOptions{
-				InterfaceURL: "https://agents.example.com/reviewer",
-				IconURL:      "https://cdn.example.com/icon.png?token=placeholder",
-			},
-			wantErr: "iconUrl",
-		},
-		{
-			name: "documentation-url-fragment",
-			options: a2abridge.CardOptions{
-				InterfaceURL:     "https://agents.example.com/reviewer",
-				DocumentationURL: "https://docs.example.com/reviewer#placeholder",
-			},
-			wantErr: "documentationUrl",
-		},
-		{
-			name: "provider-url-relative",
-			options: a2abridge.CardOptions{
-				InterfaceURL:         "https://agents.example.com/reviewer",
-				ProviderOrganization: "Example Labs",
-				ProviderURL:          "/relative/path",
-			},
-			wantErr: "providerUrl",
-		},
-		{
-			name: "icon-url-empty-host",
-			options: a2abridge.CardOptions{
-				InterfaceURL: "https://agents.example.com/reviewer",
-				IconURL:      "https://",
-			},
-			wantErr: "iconUrl",
-		},
-	}
-	for _, tc := range cases {
+		{"provider-credentials", a2abridge.CardOptions{ProviderOrganization: "Example Labs", ProviderURL: "https://user:placeholder@example.com"}, "providerUrl"},
+		{"documentation-file", a2abridge.CardOptions{DocumentationURL: "file:///etc/passwd"}, "documentationUrl"},
+		{"icon-query", a2abridge.CardOptions{IconURL: "https://cdn.example.com/icon.png?token=placeholder"}, "iconUrl"},
+		{"documentation-fragment", a2abridge.CardOptions{DocumentationURL: "https://docs.example.com/reviewer#placeholder"}, "documentationUrl"},
+		{"provider-relative", a2abridge.CardOptions{ProviderOrganization: "Example Labs", ProviderURL: "/relative/path"}, "providerUrl"},
+		{"icon-empty-host", a2abridge.CardOptions{IconURL: "https://"}, "iconUrl"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			card, err := a2abridge.NewAgentCard(agent, tc.options)
-			if err == nil {
-				t.Fatalf("expected error, got card: %#v", card)
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("error %q does not contain field name %q", err.Error(), tc.wantErr)
-			}
+			tc.options.InterfaceURL = "https://agents.example.com/reviewer"
+			card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, tc.options)
+			require(t, err != nil && strings.Contains(err.Error(), tc.wantErr), "expected %s error, got card %#v, %v", tc.wantErr, card, err)
 		})
 	}
 }
@@ -273,9 +142,7 @@ func TestAgentCardPublicURLsAllowPlainHTTP(t *testing.T) {
 		DocumentationURL:     "http://docs.internal/reviewer",
 		IconURL:              "http://cdn.internal/icon.png",
 	})
-	if err != nil {
-		t.Fatalf("plain-http public URLs should be accepted, got %v", err)
-	}
+	require(t, err == nil, "plain-http public URLs should be accepted, got %v", err)
 	if card.DocumentationURL != "http://docs.internal/reviewer" {
 		t.Errorf("DocumentationURL = %q", card.DocumentationURL)
 	}
@@ -298,13 +165,12 @@ func TestAgentCardFullConfigurationRoundTrip(t *testing.T) {
 		Version:              "1.2.3",
 		Description:          "Reviews code changes.",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
+	require(t, card.Provider != nil, "provider is missing")
+	require(t, card.Provider.Org == "Example Labs" && card.Provider.URL == "https://example.com", "unexpected provider: %#v", card.Provider)
+	require(t, card.DocumentationURL == "https://docs.example.com/reviewer" && card.IconURL == "https://cdn.example.com/reviewer.png", "unexpected public URLs: %#v", card)
 	encoded, err := json.Marshal(card)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	body := string(encoded)
 	for _, want := range []string{
 		`"organization":"Example Labs"`,
@@ -319,9 +185,7 @@ func TestAgentCardFullConfigurationRoundTrip(t *testing.T) {
 	// Defence in depth — credentials and execution IDs must never appear in
 	// the public card even when every optional field is configured.
 	for _, secret := range []string{"execution-secret", "scopeToken", "agentToken"} {
-		if strings.Contains(body, secret) {
-			t.Fatalf("encoded card contains private value %q", secret)
-		}
+		require(t, !strings.Contains(body, secret), "encoded card contains private value %q", secret)
 	}
 }
 
@@ -330,13 +194,9 @@ func TestAgentCardHandlerWorksWithOfficialResolver(t *testing.T) {
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	handler, err := a2abridge.NewAgentCardHandler(card)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	mux := http.NewServeMux()
 	mux.Handle(a2abridge.AgentCardPath, handler)
 	server := httptest.NewServer(mux)
@@ -344,31 +204,21 @@ func TestAgentCardHandlerWorksWithOfficialResolver(t *testing.T) {
 
 	resolver := agentcard.NewResolver(server.Client())
 	resolved, err := resolver.Resolve(context.Background(), server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved.Name != card.Name || resolved.Version != card.Version || len(resolved.SupportedInterfaces) != 1 {
-		t.Fatalf("unexpected resolved card: %#v", resolved)
-	}
+	requireNoError(t, err)
+	require(t, resolved.Name == card.Name && resolved.Version == card.Version && len(resolved.SupportedInterfaces) == 1, "unexpected resolved card: %#v", resolved)
 
 	response, err := server.Client().Get(server.URL + a2abridge.AgentCardPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	response.Body.Close()
 	if response.Header.Get("Cache-Control") != "public, max-age=60" || response.Header.Get("ETag") == "" || response.Header.Get("Last-Modified") == "" {
 		t.Fatalf("missing cache headers: %#v", response.Header)
 	}
 
 	request, err := http.NewRequest(http.MethodGet, server.URL+a2abridge.AgentCardPath, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	request.Header.Set("If-None-Match", response.Header.Get("ETag"))
 	cached, err := server.Client().Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	cached.Body.Close()
 	if cached.StatusCode != http.StatusNotModified {
 		t.Fatalf("unexpected cache response: %d", cached.StatusCode)
@@ -379,13 +229,9 @@ func TestAgentCardHandlerRejectsUnsupportedMethods(t *testing.T) {
 	card, err := a2abridge.NewAgentCard(a2abridge.AgentProfile{DisplayName: "Reviewer"}, a2abridge.CardOptions{
 		InterfaceURL: "https://agents.example.com/reviewer",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	handler, err := a2abridge.NewAgentCardHandler(card)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, a2abridge.AgentCardPath, nil))
 	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
@@ -401,195 +247,87 @@ func makeTestCard(t *testing.T) *a2a.AgentCard {
 		InterfaceURL: "https://agents.example.com/reviewer",
 		Version:      "1.2.3",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	return card
 }
 
-func TestAgentCardHandlerHonoursCustomCacheLifetime(t *testing.T) {
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: 5 * time.Minute,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
-	if got := response.Header().Get("Cache-Control"); got != "public, max-age=300" {
-		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
-	}
-}
-
-func TestAgentCardHandlerSupportsZeroCacheLifetime(t *testing.T) {
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: 0,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
-	if got := response.Header().Get("Cache-Control"); got != "public, max-age=0" {
-		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=0")
-	}
-}
-
-func TestAgentCardHandlerRejectsNegativeCacheLifetime(t *testing.T) {
-	_, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: -time.Second,
-	})
-	if err == nil || !strings.Contains(err.Error(), "must not be negative") {
-		t.Fatalf("expected negative-lifetime rejection, got %v", err)
-	}
-}
-
-func TestAgentCardHandlerRejectsExcessiveCacheLifetime(t *testing.T) {
-	_, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: 48 * time.Hour,
-	})
-	if err == nil || !strings.Contains(err.Error(), "exceeds the maximum") {
-		t.Fatalf("expected excessive-lifetime rejection, got %v", err)
-	}
-}
-
-func TestAgentCardHandlerHonoursFixedLastModified(t *testing.T) {
-	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: time.Minute,
-		LastModified:  fixed,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
-	wantLastModified := fixed.Format(http.TimeFormat)
-	if got := response.Header().Get("Last-Modified"); got != wantLastModified {
-		t.Errorf("Last-Modified = %q, want %q", got, wantLastModified)
-	}
-
-	// Conditional GET against a time matching the card should return 304.
-	conditional := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
-	request.Header.Set("If-Modified-Since", wantLastModified)
-	handler.ServeHTTP(conditional, request)
-	if conditional.Code != http.StatusNotModified {
-		t.Errorf("If-Modified-Since match: status = %d, want %d", conditional.Code, http.StatusNotModified)
-	}
-}
-
-func TestAgentCardHandlerIfModifiedSinceMissReturnsFullResponse(t *testing.T) {
-	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: time.Minute,
-		LastModified:  fixed,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The client claims to have a version older than the card's last update.
-	stale := fixed.Add(-time.Hour).Format(http.TimeFormat)
-	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
-	request.Header.Set("If-Modified-Since", stale)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Errorf("stale If-Modified-Since: status = %d, want %d", response.Code, http.StatusOK)
-	}
-	if response.Body.Len() == 0 {
-		t.Error("stale If-Modified-Since should return a body, got empty")
-	}
-}
-
-func TestAgentCardHandlerIfModifiedSinceInvalidDateTreatedAsMiss(t *testing.T) {
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
-	request.Header.Set("If-Modified-Since", "not-a-valid-http-date")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Errorf("invalid If-Modified-Since: status = %d, want %d (full response)", response.Code, http.StatusOK)
-	}
-}
-
-func TestAgentCardHandlerIfNoneMatchPrecedesIfModifiedSince(t *testing.T) {
-	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: time.Minute,
-		LastModified:  fixed,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
-	request.Header.Set("If-None-Match", `"different"`)
-	request.Header.Set("If-Modified-Since", fixed.Format(http.TimeFormat))
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("non-matching If-None-Match must ignore matching date: status = %d, want %d", response.Code, http.StatusOK)
-	}
-}
-
-func TestAgentCardHandlerSupportsStandardIfNoneMatchForms(t *testing.T) {
-	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial := httptest.NewRecorder()
-	handler.ServeHTTP(initial, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
-	etag := initial.Header().Get("ETag")
-	for name, value := range map[string]string{
-		"weak":     "W/" + etag,
-		"list":     `"different", ` + etag,
-		"wildcard": "*",
+func TestAgentCardHandlerCacheLifetime(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		lifetime        time.Duration
+		header, wantErr string
+	}{
+		{"custom", 5 * time.Minute, "public, max-age=300", ""},
+		{"zero", 0, "public, max-age=0", ""},
+		{"negative", -time.Second, "", "must not be negative"},
+		{"excessive", 48 * time.Hour, "", "exceeds the maximum"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
-			request.Header.Set("If-None-Match", value)
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, request)
-			if response.Code != http.StatusNotModified {
-				t.Fatalf("If-None-Match %q: status = %d, want %d", value, response.Code, http.StatusNotModified)
+		t.Run(tc.name, func(t *testing.T) {
+			handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{CacheLifetime: tc.lifetime})
+			if tc.wantErr != "" {
+				require(t, err != nil && strings.Contains(err.Error(), tc.wantErr), "expected %s, got %v", tc.wantErr, err)
+				return
+			}
+			requireNoError(t, err)
+			response := cardResponse(handler, nil)
+			require(t, response.Header().Get("Cache-Control") == tc.header, "unexpected cache header: %v", response.Header())
+		})
+	}
+}
+
+func cardResponse(handler http.Handler, headers map[string]string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil)
+	for name, value := range headers {
+		if value != "" {
+			request.Header.Set(name, value)
+		}
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func TestAgentCardHandlerConditionalRequests(t *testing.T) {
+	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
+		CacheLifetime: time.Minute, LastModified: fixed,
+	})
+	requireNoError(t, err)
+	initial := cardResponse(handler, nil)
+	require(t, initial.Header().Get("Last-Modified") == fixed.Format(http.TimeFormat), "unexpected Last-Modified: %v", initial.Header())
+	etag := initial.Header().Get("ETag")
+	for _, tc := range []struct {
+		name, ifNoneMatch, ifModifiedSince string
+		status                             int
+	}{
+		{"matching-date", "", fixed.Format(http.TimeFormat), http.StatusNotModified},
+		{"stale-date", "", fixed.Add(-time.Hour).Format(http.TimeFormat), http.StatusOK},
+		{"invalid-date", "", "not-a-valid-http-date", http.StatusOK},
+		{"etag-precedes-date", `"different"`, fixed.Format(http.TimeFormat), http.StatusOK},
+		{"weak-etag", "W/" + etag, "", http.StatusNotModified},
+		{"etag-list", `"different", ` + etag, "", http.StatusNotModified},
+		{"wildcard-etag", "*", "", http.StatusNotModified},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := cardResponse(handler, map[string]string{"If-None-Match": tc.ifNoneMatch, "If-Modified-Since": tc.ifModifiedSince})
+			require(t, response.Code == tc.status, "unexpected status: %d", response.Code)
+			if tc.status == http.StatusOK {
+				require(t, response.Body.Len() > 0, "full response has no body")
 			}
 		})
 	}
 }
 
 func TestAgentCardHandlerCacheHeadersStayConsistent(t *testing.T) {
-	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
 	handler, err := a2abridge.NewAgentCardHandlerWithOptions(makeTestCard(t), a2abridge.HandlerOptions{
-		CacheLifetime: 30 * time.Second,
-		LastModified:  fixed,
+		CacheLifetime: 30 * time.Second, LastModified: time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Issue several requests and confirm the trio (ETag, Cache-Control,
-	// Last-Modified) is byte-identical across them.
-	var firstETag, firstCacheControl, firstLastModified string
-	for i := 0; i < 5; i++ {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2abridge.AgentCardPath, nil))
-		if firstETag == "" {
-			firstETag = response.Header().Get("ETag")
-			firstCacheControl = response.Header().Get("Cache-Control")
-			firstLastModified = response.Header().Get("Last-Modified")
-			continue
-		}
-		if got := response.Header().Get("ETag"); got != firstETag {
-			t.Errorf("request %d: ETag drifted to %q (was %q)", i, got, firstETag)
-		}
-		if got := response.Header().Get("Cache-Control"); got != firstCacheControl {
-			t.Errorf("request %d: Cache-Control drifted to %q (was %q)", i, got, firstCacheControl)
-		}
-		if got := response.Header().Get("Last-Modified"); got != firstLastModified {
-			t.Errorf("request %d: Last-Modified drifted to %q (was %q)", i, got, firstLastModified)
+	requireNoError(t, err)
+	initial := cardResponse(handler, nil).Header()
+	for i := 0; i < 4; i++ {
+		headers := cardResponse(handler, nil).Header()
+		for _, name := range []string{"ETag", "Cache-Control", "Last-Modified"} {
+			require(t, headers.Get(name) == initial.Get(name), "%s drifted: %v", name, headers)
 		}
 	}
 }

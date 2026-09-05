@@ -91,7 +91,7 @@ func outputStreamFromQuery(ctx context.Context, query interface {
 }
 
 func (s *Store) CreateOutputStream(ctx context.Context, scopeID string, input CreateOutputStreamInput) (OutputStream, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -147,7 +147,7 @@ func (s *Store) CreateOutputStream(ctx context.Context, scopeID string, input Cr
 }
 
 func (s *Store) ListOutputStreams(ctx context.Context, scopeID string) ([]OutputStream, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *Store) OutputStream(ctx context.Context, scopeID, streamID string) (Out
 }
 
 func (s *Store) RemoveOutputStream(ctx context.Context, scopeID, streamID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (s *Store) RemoveOutputStream(ctx context.Context, scopeID, streamID string
 }
 
 func (s *Store) SetOutputPublisher(ctx context.Context, scopeID, streamID, agentID string, allowed bool) (OutputStream, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -326,7 +326,7 @@ type outputPublisher struct {
 }
 
 func (s *Store) PublishOutput(ctx context.Context, authority outputPublisher, streamID string, input PublishOutputInput, valueJSON, referenceJSON string) (OutputValue, string, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return OutputValue{}, "", err
 	}
@@ -467,7 +467,7 @@ func outputHistory(ctx context.Context, tx *sql.Tx, stream outputStreamRecord, a
 }
 
 func (s *Store) readOutput(ctx context.Context, scopeID, credential, streamID string, after int64, limit int, latest bool) (OutputHistory, *OutputValue, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return OutputHistory{}, nil, err
 	}
@@ -615,6 +615,7 @@ func validatePublishOutput(input PublishOutputInput) (string, string, error) {
 
 func (r *Runtime) CreateOutputStream(ctx context.Context, scopeToken string, input CreateOutputStreamInput) (OutputStream, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -638,6 +639,7 @@ func (r *Runtime) CreateOutputStream(ctx context.Context, scopeToken string, inp
 
 func (r *Runtime) ListOutputStreams(ctx context.Context, scopeToken string) ([]OutputStream, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -646,6 +648,7 @@ func (r *Runtime) ListOutputStreams(ctx context.Context, scopeToken string) ([]O
 
 func (r *Runtime) OutputStream(ctx context.Context, scopeToken, streamID string) (OutputStream, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -657,6 +660,7 @@ func (r *Runtime) OutputStream(ctx context.Context, scopeToken, streamID string)
 
 func (r *Runtime) RemoveOutputStream(ctx context.Context, scopeToken, streamID string) error {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return err
 	}
@@ -672,6 +676,7 @@ func (r *Runtime) RemoveOutputStream(ctx context.Context, scopeToken, streamID s
 
 func (r *Runtime) SetOutputPublisher(ctx context.Context, scopeToken, streamID, agentID string, allowed bool) (OutputStream, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return OutputStream{}, err
 	}
@@ -722,6 +727,9 @@ func (r *Runtime) LatestOutput(ctx context.Context, token, streamID string) (*Ou
 		return nil, Errorf(CodeUnauthenticated, "Output credential is required")
 	}
 	scopeID, credential := r.outputReadAuthority(ctx, token)
+	if scopeID != "" {
+		ctx = withScopeCredential(ctx, token)
+	}
 	_, value, err := r.store.readOutput(ctx, scopeID, credential, streamID, 0, 0, true)
 	return value, err
 }
@@ -741,6 +749,9 @@ func (r *Runtime) OutputHistory(ctx context.Context, token, streamID string, aft
 		return OutputHistory{}, err
 	}
 	scopeID, credential := r.outputReadAuthority(ctx, token)
+	if scopeID != "" {
+		ctx = withScopeCredential(ctx, token)
+	}
 	history, _, err := r.store.readOutput(ctx, scopeID, credential, streamID, after, limit, false)
 	return history, err
 }

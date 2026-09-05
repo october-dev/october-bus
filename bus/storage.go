@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Store) StorageSummary(ctx context.Context, scopeID string) (StorageSummary, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return StorageSummary{}, err
 	}
@@ -161,7 +161,9 @@ func retentionTaskCandidates(ctx context.Context, tx *sql.Tx, scopeID string, be
 		updatedAt    int64
 	}
 	tasks := []taskRecord{}
-	activeDependencies := map[string]bool{}
+	retained := map[string]bool{}
+	dependenciesByID := map[string][]string{}
+	queue := []string{}
 	for rows.Next() {
 		var task taskRecord
 		var dependenciesJSON string
@@ -171,19 +173,29 @@ func retentionTaskCandidates(ctx context.Context, tx *sql.Tx, scopeID string, be
 		if err := json.Unmarshal([]byte(dependenciesJSON), &task.dependencies); err != nil {
 			return nil, err
 		}
-		if task.status != "done" {
-			for _, dependency := range task.dependencies {
-				activeDependencies[dependency] = true
-			}
+		if task.status != "done" || task.updatedAt >= before {
+			retained[task.id] = true
+			queue = append(queue, task.id)
 		}
+		dependenciesByID[task.id] = task.dependencies
 		tasks = append(tasks, task)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	candidates := []string{}
+	// Walk each retained dependency once, including history. Re-scanning the
+	// full task board per dependency depth is quadratic for long chains.
+	for i := 0; i < len(queue); i++ {
+		for _, dependency := range dependenciesByID[queue[i]] {
+			if !retained[dependency] {
+				retained[dependency] = true
+				queue = append(queue, dependency)
+			}
+		}
+	}
 	for _, task := range tasks {
-		if task.status == "done" && task.updatedAt < before && !activeDependencies[task.id] {
+		if !retained[task.id] {
 			candidates = append(candidates, task.id)
 		}
 	}
@@ -208,7 +220,7 @@ func retentionEscalationCandidates(ctx context.Context, tx *sql.Tx, scopeID stri
 }
 
 func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, execute bool) (PruneScopeResult, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
@@ -221,6 +233,10 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 		return PruneScopeResult{}, err
 	}
 	messages, err := retentionMessageCandidates(ctx, tx, scopeID, before)
+	if err != nil {
+		return PruneScopeResult{}, err
+	}
+	a2aTasks, a2aMessages, err := retentionA2ACandidates(ctx, tx, scopeID, before, messages)
 	if err != nil {
 		return PruneScopeResult{}, err
 	}
@@ -262,10 +278,17 @@ func (s *Store) PruneScope(ctx context.Context, scopeID string, before int64, ex
 	result := PruneScopeResult{
 		ScopeID: scopeID, Before: time.UnixMilli(before).UTC().Format(time.RFC3339Nano), DryRun: !execute,
 		Records: RetentionCounts{
+			A2ATasks: int64(len(a2aTasks)), A2AMessages: a2aMessages,
 			Messages: int64(len(messages)), Tasks: int64(len(tasks)), TaskProgress: taskProgressCount, Escalations: int64(len(escalations)), Events: eventCount,
 		},
 	}
 	if execute {
+		// Deleting tasks cascades their correlations before either message is removed.
+		for _, id := range a2aTasks {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM a2a_tasks WHERE scope_id=? AND task_id=?`, scopeID, id); err != nil {
+				return PruneScopeResult{}, err
+			}
+		}
 		for _, message := range messages {
 			if message.mode != MessageResponse {
 				continue

@@ -15,9 +15,7 @@ import (
 
 func TestCodexAdapterForwardsOnlyExecutionCredentials(t *testing.T) {
 	configuration, err := os.ReadFile(filepath.Join("..", "adapters", "codex", "config.toml.example"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	text := string(configuration)
 	if !strings.Contains(text, `env_vars = ["OCTOBER_BUS_ADDRESS", "OCTOBER_BUS_AGENT_TOKEN"]`) {
 		t.Fatal("Codex adapter must forward the Bus address and execution token")
@@ -30,33 +28,23 @@ func TestCodexAdapterForwardsOnlyExecutionCredentials(t *testing.T) {
 func readJSON(t *testing.T, path string) any {
 	t.Helper()
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, json.Unmarshal(data, &value))
 	return value
 }
 
 func resolvedSchema(t *testing.T, path, ref string) *jsonschema.Resolved {
 	t.Helper()
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	var schema jsonschema.Schema
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, json.Unmarshal(data, &schema))
 	if ref != "" {
 		schema.Ref = "#/$defs/" + ref
 	}
 	resolved, err := schema.Resolve(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	return resolved
 }
 
@@ -77,13 +65,9 @@ func requireInvalid(t *testing.T, schema *jsonschema.Resolved, value any) {
 func jsonValue(t *testing.T, value any) any {
 	t.Helper()
 	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	var result any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, json.Unmarshal(data, &result))
 	return result
 }
 
@@ -277,9 +261,7 @@ func TestPortableScopeArchiveSchema(t *testing.T) {
 func TestAdapterManifestsMatchSchema(t *testing.T) {
 	schema := resolvedSchema(t, filepath.Join("0.1", "schemas", "adapter-manifest.schema.json"), "")
 	paths, err := filepath.Glob(filepath.Join("..", "adapters", "*", "adapter.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if len(paths) == 0 {
 		t.Fatal("no adapter manifests found")
 	}
@@ -342,31 +324,21 @@ func TestCompatibilityRegistrySchema(t *testing.T) {
 func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 	ctx := context.Background()
 	runtimeValue, err := bus.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	server := bus.NewServer(runtimeValue, bus.ServerOptions{AdminToken: "schema-admin-token"})
 	address, err := server.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer server.Stop(context.Background())
 	client := bus.Client{Address: address, Token: "schema-admin-token"}
 	path := filepath.Join("0.1", "schemas", "protocol.schema.json")
 
 	health, err := client.Health(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "health"), jsonValue(t, health))
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/health/live", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	var liveness bus.Liveness
 	decodeErr := json.NewDecoder(response.Body).Decode(&liveness)
 	response.Body.Close()
@@ -375,88 +347,67 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 	}
 	requireValid(t, resolvedSchema(t, path, "liveness"), jsonValue(t, liveness))
 	scope, err := client.CreateScope(ctx, bus.CreateScopeInput{ID: "schema"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "createScopeResult"), jsonValue(t, scope))
+	scopes, err := client.ListScopes(ctx)
+	requireNoError(t, err)
+	requireValid(t, resolvedSchema(t, path, "scopeInfo"), jsonValue(t, scopes[0]))
+	requireValid(t, resolvedSchema(t, path, "retireResult"), map[string]any{"retired": true})
+	requireValid(t, resolvedSchema(t, path, "deleteScopeInput"), map[string]any{"confirmScopeId": scope.ScopeID})
+	requireValid(t, resolvedSchema(t, path, "deleteScopeResult"), map[string]any{"deleted": true})
 	owner := bus.Client{Address: address, Token: scope.ScopeToken}
+	page, err := owner.TaskPage(ctx, "", 10)
+	requireNoError(t, err)
+	requireValid(t, resolvedSchema(t, path, "taskPage"), jsonValue(t, page))
 	plannerRegistration, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "planner", DisplayName: "Planner"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reviewerRegistration, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "reviewer", DisplayName: "Reviewer", ConnectTo: []string{"planner"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "registerAgentResult"), jsonValue(t, reviewerRegistration))
 	publication, err := owner.CreateAgentCardPublication(ctx, bus.PublishAgentCardInput{AgentID: "reviewer"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "agentCardPublication"), jsonValue(t, publication))
 	principal, err := owner.CreateA2APrincipal(ctx, bus.CreateA2APrincipalInput{PublicationID: publication.ID, Label: "Review service"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "issuedA2APrincipal"), jsonValue(t, principal))
 	principalUsage, err := owner.ListA2APrincipalUsage(ctx)
-	if err != nil || len(principalUsage) != 1 {
-		t.Fatalf("unexpected principal usage: %#v, %v", principalUsage, err)
-	}
+	require(t, err == nil && len(principalUsage) == 1, "unexpected principal usage: %#v, %v", principalUsage, err)
 	requireValid(t, resolvedSchema(t, path, "a2aPrincipalUsage"), jsonValue(t, principalUsage[0]))
 	outputStream, err := owner.CreateOutputStream(ctx, bus.CreateOutputStreamInput{
 		Name: "site-preview", PublisherAgentIDs: []string{"reviewer"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "outputStream"), jsonValue(t, outputStream))
 	outputPrincipal, err := owner.CreateOutputPrincipal(ctx, bus.CreateOutputPrincipalInput{
 		StreamID: outputStream.ID, Label: "Dashboard", Permissions: []bus.OutputPermission{bus.OutputRead},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "issuedOutputPrincipal"), jsonValue(t, outputPrincipal))
 	planner := bus.Client{Address: address, Token: plannerRegistration.AgentToken}
 	reviewer := bus.Client{Address: address, Token: reviewerRegistration.AgentToken}
 	output, err := reviewer.PublishOutput(ctx, outputStream.ID, bus.PublishOutputInput{ContentType: bus.OutputText, Value: "ready"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "outputValue"), jsonValue(t, output))
 	history, err := (bus.Client{Address: address, Token: outputPrincipal.Credential}).OutputHistory(ctx, outputStream.ID, 0, 50)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "outputHistory"), jsonValue(t, history))
 	agent, err := planner.Heartbeat(ctx, bus.HeartbeatInput{Lifecycle: bus.LifecycleReady, Ready: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "agent"), jsonValue(t, agent))
 	receipt, err := planner.SendMessage(ctx, bus.SendMessageInput{To: "reviewer", Body: "Review", Mode: bus.MessageRequest})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "deliveryReceipt"), jsonValue(t, receipt))
 	messages, err := reviewer.PullInbox(ctx, 10, 0)
-	if err != nil || len(messages) != 1 {
-		t.Fatalf("unexpected messages: %#v, %v", messages, err)
-	}
+	require(t, err == nil && len(messages) == 1, "unexpected messages: %#v, %v", messages, err)
 	requireValid(t, resolvedSchema(t, path, "message"), jsonValue(t, messages[0]))
 	acknowledgeSchema := resolvedSchema(t, path, "acknowledgeMessagesResult")
 	acknowledge := func(expected float64) {
 		request, err := http.NewRequestWithContext(ctx, http.MethodPost, address+"/v1/messages/ack", strings.NewReader(`{"messageIds":["`+messages[0].ID+`"]}`))
-		if err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, err)
 		request.Header.Set("Authorization", "Bearer "+reviewerRegistration.AgentToken)
 		request.Header.Set("Content-Type", "application/json")
 		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, err)
 		var envelope struct {
 			OK     bool           `json:"ok"`
 			Result map[string]any `json:"result"`
@@ -474,40 +425,26 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 	acknowledge(1)
 	acknowledge(0)
 	task, err := planner.AddTask(ctx, bus.AddTaskInput{Title: "Review"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "task"), jsonValue(t, task))
 	if _, err := planner.ClaimTask(ctx, task.ID); err != nil {
 		t.Fatal(err)
 	}
 	progressEntry, err := planner.AddTaskProgress(ctx, task.ID, bus.AddTaskProgressInput{Kind: "progress", Text: "Review started"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "taskProgress"), jsonValue(t, progressEntry))
 	progressHistory, err := owner.ListTaskProgress(ctx, task.ID)
-	if err != nil || len(progressHistory) != 1 {
-		t.Fatalf("unexpected progress history: %#v, %v", progressHistory, err)
-	}
+	require(t, err == nil && len(progressHistory) == 1, "unexpected progress history: %#v, %v", progressHistory, err)
 	events, err := owner.Events(ctx, 0, 100, 0)
-	if err != nil || len(events.Events) == 0 {
-		t.Fatalf("unexpected scope events: %#v, %v", events, err)
-	}
+	require(t, err == nil && len(events.Events) != 0, "unexpected scope events: %#v, %v", events, err)
 	requireValid(t, resolvedSchema(t, path, "eventBatch"), jsonValue(t, events))
 	storage, err := owner.StorageSummary(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "storageSummary"), jsonValue(t, storage))
 	pruneResult, err := owner.PruneScope(ctx, bus.PruneScopeInput{Before: "2026-08-01T00:00:00Z"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "pruneScopeResult"), jsonValue(t, pruneResult))
 	escalation, err := reviewer.AskHuman(ctx, bus.AskHumanInput{Question: "Proceed?", Options: []string{"yes", "no"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "humanEscalation"), jsonValue(t, escalation))
 }

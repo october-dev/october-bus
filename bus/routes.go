@@ -69,9 +69,13 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/admin/shutdown",
 		routeMethod{http.MethodPost, s.shutdownServer},
 	)
+	registerRoute(router, "/v1/admin/backup", routeMethod{http.MethodGet, s.backupDatabase})
 	registerRoute(router, "/v1/admin/scopes/import",
 		routeMethod{http.MethodPost, s.importScope},
 	)
+	registerRoute(router, "/v1/admin/scopes", routeMethod{http.MethodGet, s.listScopes})
+	registerRoute(router, "/v1/admin/scopes/{scopeId}/rotate-token", routeMethod{http.MethodPost, s.rotateScopeToken})
+	registerRoute(router, "/v1/admin/scopes/{scopeId}", routeMethod{http.MethodDelete, s.deleteScope})
 	registerRoute(router, "/v1/admin/scopes/{scopeId}/export",
 		routeMethod{http.MethodGet, s.exportScope},
 	)
@@ -87,6 +91,9 @@ func (s *Server) newRouter() http.Handler {
 	)
 	registerRoute(router, "/v1/me/heartbeat",
 		routeMethod{http.MethodPatch, s.heartbeat},
+	)
+	registerRoute(router, "/v1/me/retire",
+		routeMethod{http.MethodPost, s.retireAgent},
 	)
 	registerRoute(router, "/v1/peers",
 		routeMethod{http.MethodGet, s.listPeers},
@@ -113,6 +120,7 @@ func (s *Server) newRouter() http.Handler {
 		routeMethod{http.MethodGet, s.listTasks},
 		routeMethod{http.MethodPost, s.addTask},
 	)
+	registerRoute(router, "/v1/tasks/page", routeMethod{http.MethodGet, s.taskPage})
 	registerRoute(router, "/v1/tasks/{taskId}/claim",
 		routeMethod{http.MethodPost, s.claimTask},
 	)

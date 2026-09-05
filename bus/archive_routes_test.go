@@ -1,7 +1,6 @@
 package bus
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,21 +10,7 @@ import (
 
 func archiveRequest(t *testing.T, server *Server, method, path, token string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	var encoded []byte
-	var err error
-	if body != nil {
-		encoded, err = json.Marshal(body)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	request := httptest.NewRequest(method, path, bytes.NewReader(encoded))
-	if token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
-	}
-	response := httptest.NewRecorder()
-	server.ServeHTTP(response, request)
-	return response
+	return contractRequest(t, &httpContractFixture{server: server}, method, path, token, body)
 }
 
 func TestPortableScopeArchiveAdminRoutes(t *testing.T) {
@@ -53,9 +38,7 @@ func TestPortableScopeArchiveAdminRoutes(t *testing.T) {
 	}
 
 	targetRuntime, err := Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer targetRuntime.Close()
 	target := NewServer(targetRuntime, ServerOptions{AdminToken: "target-admin"})
 	imported := archiveRequest(t, target, http.MethodPost, "/v1/admin/scopes/import", "target-admin", exportEnvelope.Result)

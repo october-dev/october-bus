@@ -504,6 +504,8 @@ export interface PruneScopeInput {
 }
 
 export interface RetentionCounts {
+  a2aTasks: number
+  a2aMessages: number
   messages: number
   tasks: number
   taskProgress: number

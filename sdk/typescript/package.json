@@ -1,7 +1,7 @@
 {
   "name": "@october-dev/october-bus",
-  "version": "0.1.0-next.13",
-  "description": "TypeScript client for October Bus.",
+  "version": "0.1.0-next.14",
+  "description": "October Bus native CLI and TypeScript client for agent coordination.",
   "type": "module",
   "sideEffects": false,
   "license": "Apache-2.0",
@@ -26,6 +26,9 @@
     "multi-agent"
   ],
   "main": "./dist/index.js",
+  "bin": {
+    "october-bus": "cli/october-bus.cjs"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -46,6 +49,7 @@
     }
   },
   "files": [
+    "cli/*.cjs",
     "dist/*.js",
     "dist/*.js.map",
     "dist/*.d.ts",
@@ -62,10 +66,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run typecheck && npm run build && npm run test:errors",
+    "prepublishOnly": "node -e \"throw new Error('Publish the staged distribution through publish-npm-prerelease.yml, not this source directory')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:errors": "node test/errors.mjs",
-    "test:integration": "node test/integration.mjs"
+    "test:errors": "node test/errors.mjs && node --test test/sessions.mjs test/cli.mjs",
+    "test:integration": "node test/integration.mjs",
+    "build:native": "node ../../scripts/npm-distribution.mjs build",
+    "pack:distribution": "node ../../scripts/npm-distribution.mjs pack",
+    "test:distribution": "node ../../scripts/test-npm-install.mjs",
+    "publish:distribution": "node ../../scripts/publish-npm.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

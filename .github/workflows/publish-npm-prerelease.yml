@@ -5,21 +5,25 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: npm-prerelease
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: npm
+    permissions:
+      contents: read
+      pull-requests: read
     defaults:
       run:
         working-directory: sdk/typescript
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.x
@@ -27,18 +31,69 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
-      - run: npm ci
+      - name: Verify reviewed release commit
+        run: node scripts/release-policy.mjs
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: go test -race -count=1 ./...
+        working-directory: .
+      - run: go vet ./...
+        working-directory: .
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:errors
-      - run: go build -o /tmp/october-bus ./cmd/october-bus
-        working-directory: .
+      - run: node --test ../../scripts/release-policy.test.mjs ../../scripts/publish-npm.test.mjs
+      - run: npm run build:native -- --all
       - run: npm run test:integration
         env:
-          OCTOBER_BUS_BINARY: /tmp/october-bus
-      - name: Verify prerelease version
-        run: node -e "if (!require('./package.json').version.includes('-')) throw new Error('npm prerelease version required')"
-      - run: npm publish --provenance --access public --tag next
+          OCTOBER_BUS_BINARY: ${{ github.workspace }}/dist/npm/linux-x64/bin/october-bus
+      - run: npm run pack:distribution -- --all
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-distribution
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-distribution
+          path: dist/npm
+      - run: npm run test:distribution
+        working-directory: sdk/typescript
+
+  publish:
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-distribution
+          path: dist/npm
+      - name: Publish native packages first, then CLI and SDK
+        run: npm run publish:distribution
+        working-directory: sdk/typescript

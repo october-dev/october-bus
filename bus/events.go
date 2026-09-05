@@ -63,7 +63,7 @@ func scanEvent(row rowScanner) (BusEvent, error) {
 }
 
 func (s *Store) Events(ctx context.Context, scopeID string, after int64, limit int) (EventBatch, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return EventBatch{}, err
 	}
@@ -144,6 +144,7 @@ func (r *Runtime) Events(ctx context.Context, scopeToken string, after int64, li
 		return EventBatch{}, Errorf(CodeInvalidArgument, "wait must be between 0 and 25 seconds")
 	}
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return EventBatch{}, err
 	}

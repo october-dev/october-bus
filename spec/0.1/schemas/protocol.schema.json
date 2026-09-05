@@ -143,6 +143,37 @@
         "leaseExpiresAt": { "$ref": "#/$defs/instant" }
       }
     },
+    "scopeInfo": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scopeId", "createdAt"],
+      "properties": {
+        "scopeId": { "$ref": "#/$defs/identifier" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "retireResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["retired"],
+      "properties": { "retired": { "const": true } }
+    },
+    "deleteScopeInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["confirmScopeId"],
+      "properties": { "confirmScopeId": { "$ref": "#/$defs/identifier" } }
+    },
+    "deleteScopeResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["deleted"],
+      "properties": { "deleted": { "type": "boolean" } }
+    },
+    "taskPage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tasks"],
+      "properties": {
+        "tasks": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/task" } },
+        "nextCursor": { "$ref": "#/$defs/identifier" }
+      }
+    },
     "heartbeatInput": {
       "type": "object",
       "additionalProperties": false,
@@ -690,8 +721,10 @@
     "retentionCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["messages", "tasks", "taskProgress", "escalations", "events"],
+      "required": ["messages", "tasks", "taskProgress", "escalations", "events", "a2aTasks", "a2aMessages"],
       "properties": {
+        "a2aTasks": { "type": "integer", "minimum": 0 },
+        "a2aMessages": { "type": "integer", "minimum": 0 },
         "messages": { "type": "integer", "minimum": 0 },
         "tasks": { "type": "integer", "minimum": 0 },
         "taskProgress": { "type": "integer", "minimum": 0 },

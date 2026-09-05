@@ -15,12 +15,8 @@ func TestAgentCardPublicationPersistsAndKeepsStableIdentity(t *testing.T) {
 	agents := setupAgents(t, database)
 	ctx := context.Background()
 	publication, err := agents.runtime.CreateAgentCardPublication(ctx, agents.scope.ScopeToken, PublishAgentCardInput{AgentID: agents.reviewer.AgentID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if publication.ID == "" || !publication.Enabled || publication.ScopeID != agents.scope.ScopeID || publication.AgentID != agents.reviewer.AgentID {
-		t.Fatalf("unexpected publication: %#v", publication)
-	}
+	requireNoError(t, err)
+	require(t, publication.ID != "" && publication.Enabled && publication.ScopeID == agents.scope.ScopeID && publication.AgentID == agents.reviewer.AgentID, "unexpected publication: %#v", publication)
 	if _, err := agents.runtime.CreateAgentCardPublication(ctx, agents.scope.ScopeToken, PublishAgentCardInput{AgentID: agents.reviewer.AgentID}); err == nil {
 		t.Fatal("duplicate publication was accepted")
 	} else {
@@ -31,49 +27,33 @@ func TestAgentCardPublicationPersistsAndKeepsStableIdentity(t *testing.T) {
 	} else {
 		requireCode(t, err, CodePermissionDenied)
 	}
-	if err := agents.runtime.Close(); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, agents.runtime.Close())
 
 	runtimeValue, err := Open(database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer runtimeValue.Close()
 	listed, err := runtimeValue.ListAgentCardPublications(ctx, agents.scope.ScopeToken)
-	if err != nil || len(listed) != 1 || listed[0].ID != publication.ID || !listed[0].Enabled {
-		t.Fatalf("unexpected persisted publications: %#v, %v", listed, err)
-	}
+	require(t, err == nil && len(listed) == 1 && listed[0].ID == publication.ID && listed[0].Enabled, "unexpected persisted publications: %#v, %v", listed, err)
 	summary, err := runtimeValue.StorageSummary(ctx, agents.scope.ScopeToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	foundPublication := false
 	for _, record := range summary.Records {
 		if record.RecordType == "a2aPublication" && record.State == "enabled" && record.Count == 1 {
 			foundPublication = true
 		}
 	}
-	if !foundPublication {
-		t.Fatalf("storage summary omitted publication: %#v", summary)
-	}
+	require(t, foundPublication, "storage summary omitted publication: %#v", summary)
 	disabled, err := runtimeValue.SetAgentCardPublicationEnabled(ctx, agents.scope.ScopeToken, publication.ID, false)
-	if err != nil || disabled.Enabled || disabled.ID != publication.ID {
-		t.Fatalf("unexpected disabled publication: %#v, %v", disabled, err)
-	}
+	require(t, err == nil && !disabled.Enabled && disabled.ID == publication.ID, "unexpected disabled publication: %#v, %v", disabled, err)
 	if _, _, err := runtimeValue.store.PublishedAgent(ctx, publication.ID); err == nil {
 		t.Fatal("disabled publication remained public")
 	} else {
 		requireCode(t, err, CodeNotFound)
 	}
 	enabled, err := runtimeValue.SetAgentCardPublicationEnabled(ctx, agents.scope.ScopeToken, publication.ID, true)
-	if err != nil || !enabled.Enabled || enabled.ID != publication.ID {
-		t.Fatalf("unexpected enabled publication: %#v, %v", enabled, err)
-	}
+	require(t, err == nil && enabled.Enabled && enabled.ID == publication.ID, "unexpected enabled publication: %#v, %v", enabled, err)
 	events, err := runtimeValue.Events(ctx, agents.scope.ScopeToken, 0, 100, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	want := map[string]bool{
 		"a2a.publication_created": false, "a2a.publication_disabled": false, "a2a.publication_enabled": false,
 	}
@@ -83,17 +63,13 @@ func TestAgentCardPublicationPersistsAndKeepsStableIdentity(t *testing.T) {
 		}
 	}
 	for eventType, found := range want {
-		if !found {
-			t.Fatalf("missing %s event", eventType)
-		}
+		require(t, found, "missing %s event", eventType)
 	}
 	if _, err := runtimeValue.PruneScope(ctx, agents.scope.ScopeToken, PruneScopeInput{Before: "2999-01-01T00:00:00Z", Execute: true}); err != nil {
 		t.Fatal(err)
 	}
 	listed, err = runtimeValue.ListAgentCardPublications(ctx, agents.scope.ScopeToken)
-	if err != nil || len(listed) != 1 || !listed[0].Enabled {
-		t.Fatalf("retention removed publication: %#v, %v", listed, err)
-	}
+	require(t, err == nil && len(listed) == 1 && listed[0].Enabled, "retention removed publication: %#v, %v", listed, err)
 }
 
 func TestPublishedAgentCardUsesTrustedURLAndHidesPrivateFields(t *testing.T) {
@@ -101,9 +77,7 @@ func TestPublishedAgentCardUsesTrustedURLAndHidesPrivateFields(t *testing.T) {
 	defer agents.runtime.Close()
 	ctx := context.Background()
 	publication, err := agents.runtime.CreateAgentCardPublication(ctx, agents.scope.ScopeToken, PublishAgentCardInput{AgentID: agents.reviewer.AgentID})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	server := NewServer(agents.runtime, ServerOptions{PublicBaseURL: "https://bus.example/coordination"})
 	path := "/a2a/agents/" + publication.ID + "/.well-known/agent-card.json"
 	request := httptest.NewRequest(http.MethodGet, "http://attacker.example"+path, nil)
@@ -114,13 +88,9 @@ func TestPublishedAgentCardUsesTrustedURLAndHidesPrivateFields(t *testing.T) {
 		t.Fatalf("unexpected card response: %d %s", response.Code, response.Body.String())
 	}
 	var card map[string]any
-	if err := json.Unmarshal(response.Body.Bytes(), &card); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, json.Unmarshal(response.Body.Bytes(), &card))
 	interfaces, ok := card["supportedInterfaces"].([]any)
-	if !ok || len(interfaces) != 1 {
-		t.Fatalf("unexpected card interfaces: %#v", card)
-	}
+	require(t, ok && len(interfaces) == 1, "unexpected card interfaces: %#v", card)
 	interfaceValue, _ := interfaces[0].(map[string]any)
 	wantInterface := "https://bus.example/coordination/a2a/agents/" + publication.ID
 	if interfaceValue["url"] != wantInterface {
@@ -131,9 +101,7 @@ func TestPublishedAgentCardUsesTrustedURLAndHidesPrivateFields(t *testing.T) {
 	}
 	encoded := response.Body.String()
 	for _, private := range []string{agents.scope.ScopeID, agents.reviewer.AgentID, agents.reviewer.ExecutionID, agents.reviewer.AgentToken, agents.scope.ScopeToken, "attacker.example"} {
-		if strings.Contains(encoded, private) {
-			t.Fatalf("card exposed private or untrusted value %q: %s", private, encoded)
-		}
+		require(t, !strings.Contains(encoded, private), "card exposed private or untrusted value %q: %s", private, encoded)
 	}
 	if _, err := agents.runtime.RegisterAgent(ctx, agents.scope.ScopeToken, RegisterAgentInput{ID: agents.reviewer.AgentID, DisplayName: "Updated Reviewer"}); err != nil {
 		t.Fatal(err)
@@ -151,9 +119,7 @@ func TestDisabledAndUnknownAgentCardsAreIndistinguishable(t *testing.T) {
 	defer agents.runtime.Close()
 	ctx := context.Background()
 	publication, err := agents.runtime.CreateAgentCardPublication(ctx, agents.scope.ScopeToken, PublishAgentCardInput{AgentID: agents.reviewer.AgentID})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	if _, err := agents.runtime.SetAgentCardPublicationEnabled(ctx, agents.scope.ScopeToken, publication.ID, false); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +150,5 @@ func TestInvalidPublicBaseURLDoesNotCreatePublication(t *testing.T) {
 		t.Fatalf("unexpected invalid-base response: %d %s", response.Code, response.Body.String())
 	}
 	publications, err := agents.runtime.ListAgentCardPublications(context.Background(), agents.scope.ScopeToken)
-	if err != nil || len(publications) != 0 {
-		t.Fatalf("invalid configuration created a publication: %#v, %v", publications, err)
-	}
+	require(t, err == nil && len(publications) == 0, "invalid configuration created a publication: %#v, %v", publications, err)
 }

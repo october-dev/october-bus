@@ -183,6 +183,9 @@ try {
   }, (value) => value)
   assert.equal(completed.task.status, 'done')
   assert.equal(completed.value, 'reviewed')
+  const page = await plannerSession.client.taskPage('', 1)
+  assert.equal(page.tasks.length, 1)
+  assert.equal(page.tasks[0].id, task.id)
   const progress = await owner.listTaskProgress(task.id)
   assert.equal(progress.length, 1)
   assert.equal(progress[0].text, 'Review started')
@@ -207,6 +210,24 @@ try {
   await plannerSession.close()
   const agentsAfterClose = await owner.listAgents()
   assert.equal(agentsAfterClose.every((agent) => !agent.reachable && agent.lifecycle === 'offline'), true)
+  let backupBytes = 0
+  let prefix = Buffer.alloc(0)
+  for await (const chunk of admin.backup()) {
+    backupBytes += chunk.byteLength
+    if (prefix.length < 16) prefix = Buffer.concat([prefix, Buffer.from(chunk)]).subarray(0, 16)
+  }
+  assert.equal(prefix.toString(), 'SQLite format 3\0')
+  assert.ok(backupBytes > 16)
+  await assert.rejects(plannerSession.client.heartbeat('ready', true), (error) => error.code === 'UNAUTHENTICATED')
+  await plannerSession.client.retire() // idempotent, without reviving authority
+  const recovered = await admin.rotateScopeToken(scope.scopeId)
+  await assert.rejects(owner.listAgents(), (error) => error.code === 'UNAUTHENTICATED')
+  const recoveredOwner = new OctoberBusScopeClient(run.address, recovered.scopeToken)
+  assert.equal((await recoveredOwner.listAgents()).length, 2)
+  assert.equal((await admin.listScopes()).some((entry) => entry.scopeId === scope.scopeId), true)
+  await admin.deleteScope(scope.scopeId)
+  await admin.deleteScope(scope.scopeId)
+  assert.equal((await admin.listScopes()).length, 0)
 } finally {
   await reviewerSession?.close()
   await plannerSession?.close()

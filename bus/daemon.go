@@ -156,44 +156,17 @@ func acquireLock(paths DaemonPaths) (*os.File, error) {
 	if err := secureDirectory(paths.RuntimeDir); err != nil {
 		return nil, err
 	}
-	create := func() (*os.File, error) {
-		file, err := os.OpenFile(paths.LockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
-			file.Close()
-			_ = os.Remove(paths.LockFile)
-			return nil, err
-		}
-		if err := file.Sync(); err != nil {
-			file.Close()
-			_ = os.Remove(paths.LockFile)
-			return nil, err
-		}
-		return file, nil
-	}
-	file, err := create()
-	if err == nil {
-		return file, nil
-	}
-	if !errors.Is(err, os.ErrExist) {
+	file, err := acquireFileLock(paths.LockFile)
+	if err != nil {
 		return nil, err
 	}
-	if run, readErr := ReadRunFile(paths.RunFile); readErr == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if health, healthErr := (Client{Address: run.Address}).Health(ctx); healthErr == nil && health.Status == "ready" {
-			return nil, errors.New("October Bus is already running")
-		}
+	// Older releases did not hold an OS lock. A slow readiness check must not
+	// let an upgrade take ownership from a live legacy daemon.
+	if run, err := ReadRunFile(paths.RunFile); err == nil && processMayBeAlive(run.PID) {
+		file.Close()
+		return nil, errors.New("October Bus discovery names a live process; stop it before starting another daemon")
 	}
-	info, statErr := os.Stat(paths.LockFile)
-	if statErr == nil && time.Since(info.ModTime()) < 30*time.Second {
-		return nil, errors.New("October Bus is already starting")
-	}
-	_ = os.Remove(paths.LockFile)
-	_ = os.Remove(paths.RunFile)
-	return create()
+	return file, nil
 }
 
 type RunningDaemon struct {
@@ -223,9 +196,8 @@ func StartDaemon(ctx context.Context, port int, paths *DaemonPaths) (*RunningDae
 		return nil, err
 	}
 	cleanup := func() {
-		_ = lock.Close()
 		_ = os.Remove(resolved.RunFile)
-		_ = os.Remove(resolved.LockFile)
+		_ = lock.Close()
 	}
 	runtimeOptions, err := runtimeOptionsFromEnvironment()
 	if err != nil {
@@ -302,9 +274,8 @@ func (d *RunningDaemon) Stop(ctx context.Context) error {
 	var result error
 	d.once.Do(func() {
 		result = d.Server.Stop(ctx)
-		_ = d.lock.Close()
 		_ = os.Remove(d.Paths.RunFile)
-		_ = os.Remove(d.Paths.LockFile)
+		_ = d.lock.Close()
 	})
 	return result
 }

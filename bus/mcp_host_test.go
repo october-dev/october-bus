@@ -76,9 +76,7 @@ func TestServeMCPHostPolicy(t *testing.T) {
 				Code ErrorCode `json:"code"`
 			} `json:"error"`
 		}
-		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
 		if response.Code != status || payload.OK || payload.Error.Code != code {
 			t.Fatalf("unexpected failure: status=%d payload=%#v", response.Code, payload)
 		}
@@ -112,9 +110,7 @@ func TestDaemonAllowedHostsEnvironment(t *testing.T) {
 		LockFile: filepath.Join(root, "run", "bus.lock"),
 	}
 	daemon, err := StartDaemon(context.Background(), 0, &paths)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer daemon.Stop(context.Background())
 	want := []string{"a:1", "b:2"}
 	if !reflect.DeepEqual(daemon.Server.options.AllowedHosts, want) {

@@ -60,7 +60,13 @@ For Bus API responses using the envelope above, success status codes are route-s
 | `POST` | `/v1/inbox/{reservationId}/commit` | Reserving agent | Delivered messages |
 | `POST` | `/v1/inbox/{reservationId}/release` | Reserving agent | Release confirmation |
 | `POST` | `/v1/tasks` | Scope or agent | New task |
-| `GET` | `/v1/tasks` | Scope or agent | Tasks in the scope |
+| `GET` | `/v1/tasks` | Scope or agent | Tasks in the scope, up to 10,000 total |
+| `GET` | `/v1/tasks/page` | Scope or agent | Bounded task page |
+| `POST` | `/v1/me/retire` | Current agent token, including expired | Retirement confirmation |
+| `GET` | `/v1/admin/scopes` | Admin | Scope IDs and creation timestamps |
+| `POST` | `/v1/admin/scopes/{scopeId}/rotate-token` | Admin | Replacement scope token |
+| `DELETE` | `/v1/admin/scopes/{scopeId}` | Admin | Deletion confirmation |
+| `GET` | `/v1/admin/backup` | Admin | Streamed SQLite snapshot (reference-runtime extension) |
 | `POST` | `/v1/tasks/{taskId}/claim` | Agent | Claimed task |
 | `POST` | `/v1/tasks/{taskId}/release` | Claiming execution | Open task |
 | `POST` | `/v1/tasks/{taskId}/complete` | Claiming execution | Completed task |
@@ -126,9 +132,19 @@ The following routes return HTTP status codes other than `200 OK` on success:
 
 All other successful `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes return `200 OK`. `POST /v1/inbox/reserve` accepts an optional `limit` from 1 through 100; omission or 0 selects the default of 50. It also accepts an optional `waitMs` value from 0 through 25000. When no message is immediately reservable, a positive value waits until work arrives, the wait expires, the request is canceled, the server stops, or the execution loses authority. The default is 0 and returns immediately. A successful timeout returns `null` and does not reserve a message.
 
-`GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope.
+`GET /v1/tasks?ready=true` returns only open, unclaimed tasks whose dependencies are complete. The default returns every task in the scope. When total task history exceeds 10,000, this legacy endpoint returns `BACKPRESSURE`. Use `GET /v1/tasks/page?limit=100&after=<cursor>`: limits are 1–500, default 100. Results are ordered by task ID, not creation time. Pass `nextCursor` as the next `after`; its absence ends traversal. This is not a snapshot: concurrent insertions before the cursor require a new traversal.
+
+`POST /v1/me/retire` takes `{}` and atomically sets the current lease to zero, marks the execution offline, releases reservations, and releases its task claims. The same token can repeat retirement, including after natural expiry, but cannot heartbeat or perform other protected operations. A replaced token cannot retire its successor. Offline heartbeats remain temporary presence updates and do not retire authority. Go and TypeScript sessions serialize lifecycle writes, attempt retirement on close/cancellation/startup-heartbeat failure, and reject state changes after close. Failed network cleanup falls back to lease expiry and is reported by the session.
+
+Protected writes MUST recheck current execution and lease, or scoped credential generation, grant and enabled state, within the transaction that commits the write. Scope-owner mutations also fence token rotation at this boundary. Authentication before dispatch alone is insufficient.
+
+Admin scope listing returns `scopeInfo[]`, allowing recovery when a scope-creation response was lost. Token rotation takes `{}`, returns `createScopeResult`, and retires all existing executions and disables all scoped credentials in that scope in one transaction. Re-register executions and rotate/re-enable only reviewed scoped principals. A lost rotation response can be recovered by rotating again; this issues another token, not the lost secret. Deletion requires `deleteScopeInput` with the exact path ID in `confirmScopeId`; it permanently removes the scope and dependent records. A repeated deletion succeeds with `deleted=false`. Back up before deleting.
+
+The reference runtime admits at most 256 ordinary in-flight HTTP requests, with a separate 32-request budget for heartbeat, retirement, health, and shutdown. Inbox waits have independent limits of 32 per agent and 128 per scope; notifications do not reset admission counters. Overload returns `BACKPRESSURE`; HTTP admission rejection includes `Retry-After: 1`. These bounds are resource controls, not a latency guarantee.
 
 `POST /v1/scope/storage/prune` requires an RFC 3339 `before` timestamp. Omitted or false `execute` performs a dry run. `execute=true` removes the reported terminal records in one transaction.
+
+Retention preserves the complete dependency closure of every retained task, including completed history. An A2A task is retained as a unit with its correlations until it is terminal before the cutoff and every correlated request/response is eligible under message retention. Pruning that unit deletes its idempotency history; clients MUST NOT retry pruned client-message IDs expecting deduplication. Results include `a2aTasks` and `a2aMessages` counts. Unanswered delivered requests remain protected even if their A2A task was marked terminal.
 
 `GET /v1/events?after=0&limit=50&waitMs=25000` returns events after the supplied scope revision. The limit is 1 through 100 and the bounded wait is 0 through 25000 milliseconds. The default cursor is 0, the default limit is 50, and the default wait returns immediately. Event envelopes contain identifiers and state metadata, not message bodies, task text, progress text, escalation questions, answers, output values, references, or credentials.
 
@@ -139,6 +155,8 @@ Agent Card publications are absent by default. A scope owner publishes one regis
 `POST /v1/a2a/principals` accepts a publication ID and label. Create and rotate responses are the only responses that contain the bearer credential. List, enable, and disable responses return principal metadata only. A principal credential is restricted to its publication and cannot authorize scope or agent operations. Presenting an enabled principal credential to a scope-authority route returns `PERMISSION_DENIED`; `/mcp` and other agent-authority routes continue to return `UNAUTHENTICATED`.
 
 `GET /v1/a2a/principals/usage` returns unfinished message counts, text bytes, and effective limits for every A2A principal in the scope. It does not return message content. Terminal tasks and undelivered expired requests do not consume capacity.
+
+The reference runtime additionally limits the aggregate active A2A message backlog to 5,000 messages and 64 MiB of bodies per scope. Active means queued, reserved or delivered, not acknowledged or expired. Per-principal unfinished-task quotas apply independently. Already-accepted idempotent retries do not consume another slot and remain available at capacity.
 
 `POST /a2a/agents/{publicationId}/message:send` implements A2A 1.0 HTTP+JSON `SendMessage`. It accepts user messages made only of plain text parts and returns a durable A2A Task. The bearer credential must belong to the requested publication. The optional `A2A-Version` header must contain exactly `1.0`. Other A2A operations and content types return A2A protocol errors.
 

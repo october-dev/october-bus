@@ -15,9 +15,7 @@ import (
 func a2aTestTransport(t *testing.T, server *httptest.Server, publicationID string) a2aclient.Transport {
 	t.Helper()
 	endpoint, err := url.Parse(server.URL + "/a2a/agents/" + publicationID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	return a2aclient.NewRESTTransport(endpoint, server.Client())
 }
 
@@ -41,27 +39,17 @@ func TestA2ASendMessageCreatesDurableBusRequest(t *testing.T) {
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("Review this"), a2a.NewTextPart("Focus on security"))
 	message.ID = "remote-message-1"
 	result, err := transport.SendMessage(context.Background(), a2aTestParams(issued.Credential, string(a2a.Version)), &a2a.SendMessageRequest{Message: message})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	task, ok := result.(*a2a.Task)
-	if !ok || task.ID == "" || task.ContextID == "" || task.Status.State != a2a.TaskStateSubmitted || len(task.History) != 1 || task.History[0].ID != message.ID {
-		t.Fatalf("unexpected A2A task: %#v", result)
-	}
+	require(t, ok && task.ID != "" && task.ContextID != "" && task.Status.State == a2a.TaskStateSubmitted && len(task.History) == 1 && task.History[0].ID == message.ID, "unexpected A2A task: %#v", result)
 
 	reservation, err := agents.runtime.ReserveInbox(context.Background(), agents.reviewerToken, 10, 0)
-	if err != nil || reservation == nil || len(reservation.Messages) != 1 {
-		t.Fatalf("unexpected inbox: %#v, %v", reservation, err)
-	}
+	require(t, err == nil && reservation != nil && len(reservation.Messages) == 1, "unexpected inbox: %#v, %v", reservation, err)
 	inbound := reservation.Messages[0]
-	if inbound.From != issued.Principal.ID || inbound.FromKind != MessageParticipantA2APrincipal || inbound.Body != "Review this\nFocus on security" {
-		t.Fatalf("unexpected Bus request: %#v", inbound)
-	}
+	require(t, inbound.From == issued.Principal.ID && inbound.FromKind == MessageParticipantA2APrincipal && inbound.Body == "Review this\nFocus on security", "unexpected Bus request: %#v", inbound)
 
 	retry, err := transport.SendMessage(context.Background(), a2aTestParams(issued.Credential, string(a2a.Version)), &a2a.SendMessageRequest{Message: message})
-	if err != nil || retry.(*a2a.Task).ID != task.ID {
-		t.Fatalf("A2A retry created different work: %#v, %v", retry, err)
-	}
+	require(t, err == nil && retry.(*a2a.Task).ID == task.ID, "A2A retry created different work: %#v, %v", retry, err)
 }
 
 func TestA2ASendMessageEnforcesAuthenticationVersionAndContent(t *testing.T) {
@@ -77,32 +65,20 @@ func TestA2ASendMessageEnforcesAuthenticationVersionAndContent(t *testing.T) {
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("Review this"))
 	message.ID = "remote-message-1"
 	_, err := transport.SendMessage(ctx, a2aTestParams("invalid", string(a2a.Version)), &a2a.SendMessageRequest{Message: message})
-	if !errors.Is(err, a2a.ErrUnauthenticated) {
-		t.Fatalf("invalid credential error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrUnauthenticated), "invalid credential error = %v", err)
 	_, err = transport.SendMessage(ctx, a2aTestParams(issued.Credential, "broken"), &a2a.SendMessageRequest{Message: message})
-	if !errors.Is(err, a2a.ErrVersionNotSupported) {
-		t.Fatalf("invalid version error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrVersionNotSupported), "invalid version error = %v", err)
 	dataMessage := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewDataPart(map[string]any{"private": true}))
 	dataMessage.ID = "remote-data-1"
 	_, err = transport.SendMessage(ctx, a2aTestParams(issued.Credential, string(a2a.Version)), &a2a.SendMessageRequest{Message: dataMessage})
-	if !errors.Is(err, a2a.ErrUnsupportedContentType) {
-		t.Fatalf("unsupported content error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrUnsupportedContentType), "unsupported content error = %v", err)
 	_, err = transport.GetTask(ctx, a2aTestParams("invalid", string(a2a.Version)), &a2a.GetTaskRequest{ID: "hidden-task"})
-	if !errors.Is(err, a2a.ErrUnauthenticated) {
-		t.Fatalf("unauthenticated task lookup error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrUnauthenticated), "unauthenticated task lookup error = %v", err)
 	_, err = transport.GetTask(ctx, a2aTestParams(issued.Credential, string(a2a.Version)), &a2a.GetTaskRequest{ID: "hidden-task"})
-	if !errors.Is(err, a2a.ErrUnsupportedOperation) {
-		t.Fatalf("unsupported task lookup error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrUnsupportedOperation), "unsupported task lookup error = %v", err)
 
 	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
-	if err != nil || reservation != nil {
-		t.Fatalf("rejected requests created work: %#v, %v", reservation, err)
-	}
+	require(t, err == nil && reservation == nil, "rejected requests created work: %#v, %v", reservation, err)
 }
 
 func TestA2ASendMessageReturnsResourceLimitError(t *testing.T) {
@@ -126,7 +102,5 @@ func TestA2ASendMessageReturnsResourceLimitError(t *testing.T) {
 	second := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("6789"))
 	second.ID = "limited-2"
 	_, err := transport.SendMessage(context.Background(), params, &a2a.SendMessageRequest{Message: second})
-	if !errors.Is(err, a2a.ErrServerError) || !strings.Contains(err.Error(), "Remote work capacity is full") {
-		t.Fatalf("resource limit error = %v", err)
-	}
+	require(t, errors.Is(err, a2a.ErrServerError) && strings.Contains(err.Error(), "Remote work capacity is full"), "resource limit error = %v", err)
 }

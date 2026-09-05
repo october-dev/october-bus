@@ -60,9 +60,7 @@ func connectMCPBridge(t *testing.T, ctx context.Context, address, token string) 
 func callMCPBridgeTool(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string, arguments map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
-	if err != nil || result.IsError {
-		t.Fatalf("call %s: %#v, %v", name, result, err)
-	}
+	require(t, err == nil && !result.IsError, "call %s: %#v, %v", name, result, err)
 	return result
 }
 
@@ -87,31 +85,19 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 		}},
 		DisableStandaloneSSE: true,
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer directSession.Close()
 	directTools, err := directSession.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	forwardedJSON, err := json.Marshal(tools.Tools)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	directJSON, err := json.Marshal(directTools.Tools)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(forwardedJSON, directJSON) {
-		t.Fatalf("stdio bridge changed the daemon tool definitions\nforwarded: %s\ndirect: %s", forwardedJSON, directJSON)
-	}
+	requireNoError(t, err)
+	require(t, bytes.Equal(forwardedJSON, directJSON), "stdio bridge changed the daemon tool definitions\nforwarded: %s\ndirect: %s", forwardedJSON, directJSON)
 	callMCPBridgeTool(t, ctx, session, "list_peers", map[string]any{})
 	callMCPBridgeTool(t, ctx, session, "message_peer", map[string]any{"peer": "receiver", "message": "Forwarded over stdio"})
 	messages, err := (bus.Client{Address: address, Token: receiverToken}).PullInbox(ctx, 10, 0)
-	if err != nil || len(messages) != 1 || messages[0].Body != "Forwarded over stdio" {
-		t.Fatalf("unexpected forwarded message: %#v, %v", messages, err)
-	}
+	require(t, err == nil && len(messages) == 1 && messages[0].Body == "Forwarded over stdio", "unexpected forwarded message: %#v, %v", messages, err)
 	callMCPBridgeTool(t, ctx, session, "add_task", map[string]any{"title": "Forward a task"})
 	callMCPBridgeTool(t, ctx, session, "ask_user", map[string]any{"question": "Continue?"})
 }
@@ -121,9 +107,7 @@ func TestMCPStdioBridgeStartsWithoutRuntimeIdentity(t *testing.T) {
 	defer cancel()
 	session, stderr := connectMCPBridge(t, ctx, "http://127.0.0.1:1", "")
 	initial := session.InitializeResult()
-	if initial == nil || !strings.Contains(initial.Instructions, "not running inside a managed agent execution") {
-		t.Fatalf("unexpected bridge instructions: %#v", initial)
-	}
+	require(t, initial != nil && strings.Contains(initial.Instructions, "not running inside a managed agent execution"), "unexpected bridge instructions: %#v", initial)
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil || len(tools.Tools) != 0 {
 		t.Fatalf("unexpected tools without identity: %#v, %v; stderr: %s", tools, err, stderr.String())
@@ -169,9 +153,7 @@ func TestStopCommandUsesProtectedLocalEndpoint(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_DATA_DIR", filepath.Join(root, "data"))
 	t.Setenv("OCTOBER_BUS_RUNTIME_DIR", filepath.Join(root, "run"))
 	daemon, err := bus.StartDaemon(context.Background(), 0, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	stopped := make(chan error, 1)
 	go func() {
 		select {
@@ -183,46 +165,32 @@ func TestStopCommandUsesProtectedLocalEndpoint(t *testing.T) {
 			stopped <- context.DeadlineExceeded
 		}
 	}()
-	if err := stop(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-stopped; err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, stop())
+	requireNoError(t, <-stopped)
 }
 
 func TestRunAgentOwnsHeartbeatAndEnvironment(t *testing.T) {
 	ctx := context.Background()
 	runtimeValue, err := bus.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	server := bus.NewServer(runtimeValue, bus.ServerOptions{})
 	address, err := server.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer server.Stop(context.Background())
 	scope, err := runtimeValue.CreateScope(ctx, bus.CreateScopeInput{ID: "agent-run"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scope.ScopeToken)
 	t.Setenv("OCTOBER_BUS_TEST_HELPER", "1")
-	if err := runAgent([]string{
+	requireNoError(t, runAgent([]string{
 		"--id", "worker",
 		"--name", "Worker",
 		"--address", address,
 		"--lease", "30s",
 		"--heartbeat", "10ms",
 		"--", os.Args[0], "-test.run=TestAgentRunHelper",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	agents, err := (bus.Client{Address: address, Token: scope.ScopeToken}).ListAgents(ctx)
-	if err != nil || len(agents) != 1 {
-		t.Fatalf("unexpected agents: %#v, %v", agents, err)
-	}
+	require(t, err == nil && len(agents) == 1, "unexpected agents: %#v, %v", agents, err)
 	if agents[0].Lifecycle != bus.LifecycleOffline || agents[0].Ready || agents[0].Reachable {
 		t.Fatalf("agent process did not leave an offline execution: %#v", agents[0])
 	}
@@ -233,16 +201,12 @@ func TestSetEnvironmentReplacesExistingValues(t *testing.T) {
 		"OCTOBER_BUS_AGENT_TOKEN", "new",
 		"OCTOBER_BUS_AGENT_ID", "worker",
 	)
-	if len(result) != 3 || result[0] != "PATH=/bin" || result[1] != "OCTOBER_BUS_AGENT_TOKEN=new" || result[2] != "OCTOBER_BUS_AGENT_ID=worker" {
-		t.Fatalf("unexpected environment: %#v", result)
-	}
+	require(t, len(result) == 3 && result[0] == "PATH=/bin" && result[1] == "OCTOBER_BUS_AGENT_TOKEN=new" && result[2] == "OCTOBER_BUS_AGENT_ID=worker", "unexpected environment: %#v", result)
 }
 
 func TestRemoveEnvironmentRemovesCredentials(t *testing.T) {
 	result := removeEnvironment([]string{"PATH=/bin", "OCTOBER_BUS_SCOPE_TOKEN=secret", "OTHER=value"}, "october_bus_scope_token")
-	if len(result) != 2 || result[0] != "PATH=/bin" || result[1] != "OTHER=value" {
-		t.Fatalf("unexpected environment: %#v", result)
-	}
+	require(t, len(result) == 2 && result[0] == "PATH=/bin" && result[1] == "OTHER=value", "unexpected environment: %#v", result)
 }
 
 // startTestServer spins up an in-memory bus, registers two linked agents
@@ -252,14 +216,10 @@ func TestRemoveEnvironmentRemovesCredentials(t *testing.T) {
 func startTestServer(t *testing.T, ctx context.Context, scopeID string) (address, scopeToken, senderToken, receiverToken string, cleanup func()) {
 	t.Helper()
 	runtimeValue, err := bus.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open runtime: %v", err)
-	}
+	require(t, err == nil, "open runtime: %v", err)
 	server := bus.NewServer(runtimeValue, bus.ServerOptions{})
 	listenAddr, err := server.Start()
-	if err != nil {
-		t.Fatalf("start server: %v", err)
-	}
+	require(t, err == nil, "start server: %v", err)
 	scope, err := runtimeValue.CreateScope(ctx, bus.CreateScopeInput{ID: scopeID})
 	if err != nil {
 		server.Stop(context.Background())
@@ -299,18 +259,14 @@ func TestInspectReceiptRequiresArgs(t *testing.T) {
 func TestInspectReceiptRequiresAgentToken(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", "")
 	err := inspectReceipt([]string{"--address", "http://127.0.0.1:1", "msg-1"})
-	if err == nil || !strings.Contains(err.Error(), "OCTOBER_BUS_AGENT_TOKEN is required") {
-		t.Fatalf("expected token-required error, got %v", err)
-	}
+	require(t, err != nil && strings.Contains(err.Error(), "OCTOBER_BUS_AGENT_TOKEN is required"), "expected token-required error, got %v", err)
 }
 
 func TestPrintReceiptHumanOmitsEmptyTimestamps(t *testing.T) {
 	// Capture stdout while rendering, restore on exit.
 	originalStdout := os.Stdout
 	r, w, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatalf("pipe: %v", pipeErr)
-	}
+	require(t, pipeErr == nil, "pipe: %v", pipeErr)
 	os.Stdout = w
 	defer func() { os.Stdout = originalStdout }()
 
@@ -362,16 +318,12 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	// Send a message, pull it on the receiver side, and acknowledge it so the
 	// receipt progresses through delivered and acknowledged states.
 	initial, err := sender.SendMessage(ctx, bus.SendMessageInput{To: "receiver", Body: "ping"})
-	if err != nil {
-		t.Fatalf("send: %v", err)
-	}
+	require(t, err == nil, "send: %v", err)
 	if initial.State != bus.DeliveryQueued {
 		t.Fatalf("expected initial state queued, got %q", initial.State)
 	}
 	inbox, err := receiver.PullInbox(ctx, 10, 0)
-	if err != nil {
-		t.Fatalf("pull: %v", err)
-	}
+	require(t, err == nil, "pull: %v", err)
 	if len(inbox) != 1 {
 		t.Fatalf("expected one inbox message, got %d", len(inbox))
 	}
@@ -416,29 +368,8 @@ func TestInspectReceiptEndToEnd(t *testing.T) {
 	}
 }
 
-// runInspectCapturing routes inspectReceipt's stdout through a buffer by
-// temporarily swapping os.Stdout. It restores the original handle on exit.
 func runInspectCapturing(buf *bytes.Buffer, args ...string) error {
-	original := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	os.Stdout = w
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(buf, r)
-		close(done)
-	}()
-	invokeErr := inspectReceipt(args)
-	if err := w.Close(); err != nil {
-		os.Stdout = original
-		return err
-	}
-	os.Stdout = original
-	<-done
-	_ = r.Close()
-	return invokeErr
+	return captureStdout(buf, func() error { return inspectReceipt(args) })
 }
 
 func TestInspectReceiptUnknownMessageReturnsError(t *testing.T) {
@@ -454,9 +385,7 @@ func TestInspectReceiptUnknownMessageReturnsError(t *testing.T) {
 		t.Fatal("expected error for unknown message, got nil")
 	}
 	var busErr *bus.BusError
-	if !errors.As(err, &busErr) {
-		t.Fatalf("expected *bus.BusError, got %T: %v", err, err)
-	}
+	require(t, errors.As(err, &busErr), "expected *bus.BusError, got %T: %v", err, err)
 	if busErr.Code != bus.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %q", busErr.Code)
 	}
@@ -474,15 +403,11 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 	outsider, err := (bus.Client{Address: address, Token: scopeToken}).RegisterAgent(ctx, bus.RegisterAgentInput{
 		ID: "outsider", DisplayName: "Outsider",
 	})
-	if err != nil {
-		t.Fatalf("register outsider: %v", err)
-	}
+	require(t, err == nil, "register outsider: %v", err)
 
 	sender := bus.Client{Address: address, Token: senderToken}
 	initial, err := sender.SendMessage(ctx, bus.SendMessageInput{To: "receiver", Body: "secret"})
-	if err != nil {
-		t.Fatalf("send: %v", err)
-	}
+	require(t, err == nil, "send: %v", err)
 
 	t.Setenv("OCTOBER_BUS_AGENT_TOKEN", outsider.AgentToken)
 	var output bytes.Buffer
@@ -491,9 +416,7 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 		t.Fatal("expected error when an outsider inspects a message they did not send or receive")
 	}
 	var busErr *bus.BusError
-	if !errors.As(err, &busErr) {
-		t.Fatalf("expected *bus.BusError, got %T: %v", err, err)
-	}
+	require(t, errors.As(err, &busErr), "expected *bus.BusError, got %T: %v", err, err)
 	if busErr.Code != bus.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %q", busErr.Code)
 	}
@@ -505,17 +428,13 @@ func TestInspectReceiptRejectsUnauthorizedCaller(t *testing.T) {
 func TestListAgentsRequiresScopeToken(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", "")
 	err := listAgents([]string{"--address", "http://127.0.0.1:1"})
-	if err == nil || !strings.Contains(err.Error(), "OCTOBER_BUS_SCOPE_TOKEN is required") {
-		t.Fatalf("expected token-required error, got %v", err)
-	}
+	require(t, err != nil && strings.Contains(err.Error(), "OCTOBER_BUS_SCOPE_TOKEN is required"), "expected token-required error, got %v", err)
 }
 
 func TestListAgentsRejectsPositionalArguments(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", "unused")
 	err := listAgents([]string{"extra"})
-	if err == nil || !strings.Contains(err.Error(), "does not accept positional arguments") {
-		t.Fatalf("expected positional-argument error, got %v", err)
-	}
+	require(t, err != nil && strings.Contains(err.Error(), "does not accept positional arguments"), "expected positional-argument error, got %v", err)
 }
 
 func TestPrintAgentsHumanQuotesUntrustedDisplayNames(t *testing.T) {
@@ -531,9 +450,7 @@ func TestPrintAgentsHumanQuotesUntrustedDisplayNames(t *testing.T) {
 		UpdatedAt: "2026-08-31T10:00:00Z",
 	}}
 	var output bytes.Buffer
-	if err := captureStdout(&output, func() error { return printAgentsHuman(agents) }); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, captureStdout(&output, func() error { return printAgentsHuman(agents) }))
 	text := output.String()
 	for _, want := range []string{
 		`reviewer ("Reviewer\n\x1b[31mForged")`,
@@ -554,9 +471,7 @@ func TestPrintAgentsHumanQuotesUntrustedDisplayNames(t *testing.T) {
 
 func TestPrintAgentsHumanEmptyScope(t *testing.T) {
 	var output bytes.Buffer
-	if err := captureStdout(&output, func() error { return printAgentsHuman(nil) }); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, captureStdout(&output, func() error { return printAgentsHuman(nil) }))
 	if output.String() != "No agents in scope.\n" {
 		t.Fatalf("unexpected empty-scope output: %q", output.String())
 	}
@@ -581,9 +496,7 @@ func TestListAgentsEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput.Bytes(), &agents); err != nil {
 		t.Fatalf("decode JSON output: %v", err)
 	}
-	if len(agents) != 2 || agents[0].ID != "receiver" || agents[1].ID != "sender" {
-		t.Fatalf("agents are not sorted by id: %+v", agents)
-	}
+	require(t, len(agents) == 2 && agents[0].ID == "receiver" && agents[1].ID == "sender", "agents are not sorted by id: %+v", agents)
 	receiverIndex := strings.Index(humanOutput.String(), "receiver (")
 	senderIndex := strings.Index(humanOutput.String(), "sender (")
 	if receiverIndex < 0 || senderIndex < 0 || receiverIndex > senderIndex {
@@ -618,14 +531,10 @@ func TestListAgentsRejectsInvalidOrAgentCredential(t *testing.T) {
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/v1/agents", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	request.Header.Set("Authorization", "Bearer "+senderToken)
 	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("agent credential returned HTTP %d, want 403", response.StatusCode)
@@ -644,43 +553,27 @@ func TestTaskCommandsManageScopeBoard(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scopeToken)
 
 	var firstOutput bytes.Buffer
-	if err := captureStdout(&firstOutput, func() error {
+	requireNoError(t, captureStdout(&firstOutput, func() error {
 		return addTask([]string{"--title", "Implement retries", "--description", "Preserve idempotency.", "--json", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	var first bus.Task
-	if err := json.Unmarshal(firstOutput.Bytes(), &first); err != nil {
-		t.Fatal(err)
-	}
-	if first.CreatedBy != nil || !first.Ready || first.Title != "Implement retries" {
-		t.Fatalf("unexpected first task: %#v", first)
-	}
+	requireNoError(t, json.Unmarshal(firstOutput.Bytes(), &first))
+	require(t, first.CreatedBy == nil && first.Ready && first.Title == "Implement retries", "unexpected first task: %#v", first)
 
 	var secondOutput bytes.Buffer
-	if err := captureStdout(&secondOutput, func() error {
+	requireNoError(t, captureStdout(&secondOutput, func() error {
 		return addTask([]string{"--title", "Review retries", "--depends-on", first.ID, "--json", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	var second bus.Task
-	if err := json.Unmarshal(secondOutput.Bytes(), &second); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, json.Unmarshal(secondOutput.Bytes(), &second))
 
 	var readyOutput bytes.Buffer
-	if err := captureStdout(&readyOutput, func() error {
+	requireNoError(t, captureStdout(&readyOutput, func() error {
 		return listTasks([]string{"--ready", "--json", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	var ready []bus.Task
-	if err := json.Unmarshal(readyOutput.Bytes(), &ready); err != nil {
-		t.Fatal(err)
-	}
-	if len(ready) != 1 || ready[0].ID != first.ID {
-		t.Fatalf("unexpected ready board: %#v", ready)
-	}
+	requireNoError(t, json.Unmarshal(readyOutput.Bytes(), &ready))
+	require(t, len(ready) == 1 && ready[0].ID == first.ID, "unexpected ready board: %#v", ready)
 
 	agent := bus.Client{Address: address, Token: senderToken}
 	if _, err := agent.ClaimTask(ctx, first.ID); err != nil {
@@ -690,17 +583,13 @@ func TestTaskCommandsManageScopeBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready, err := (bus.Client{Address: address, Token: scopeToken}).ListTasks(ctx, true)
-	if err != nil || len(ready) != 1 || ready[0].ID != second.ID {
-		t.Fatalf("dependent task did not become ready: %#v, %v", ready, err)
-	}
+	require(t, err == nil && len(ready) == 1 && ready[0].ID == second.ID, "dependent task did not become ready: %#v, %v", ready, err)
 }
 
 func TestTaskListQuotesUntrustedText(t *testing.T) {
 	tasks := []bus.Task{{ID: "task_1", Title: "Review\n\x1b[31mForged", Description: "Check\nlogs", Status: "open", Ready: true}}
 	var output bytes.Buffer
-	if err := captureStdout(&output, func() error { return printTasksHuman(tasks) }); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, captureStdout(&output, func() error { return printTasksHuman(tasks) }))
 	if strings.Contains(output.String(), "\x1b") || !strings.Contains(output.String(), `"Review\n\x1b[31mForged"`) {
 		t.Fatalf("task output did not quote untrusted text: %q", output.String())
 	}
@@ -714,9 +603,7 @@ func TestScopeStorageCommandsDefaultToDryRun(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_SCOPE_TOKEN", scopeToken)
 	owner := bus.Client{Address: address, Token: scopeToken}
 	task, err := owner.AddTask(ctx, bus.AddTaskInput{Title: "Old completed work"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	agent := bus.Client{Address: address, Token: senderToken}
 	if _, err := agent.ClaimTask(ctx, task.ID); err != nil {
 		t.Fatal(err)
@@ -726,11 +613,9 @@ func TestScopeStorageCommandsDefaultToDryRun(t *testing.T) {
 	}
 
 	var storageOutput bytes.Buffer
-	if err := captureStdout(&storageOutput, func() error {
+	requireNoError(t, captureStdout(&storageOutput, func() error {
 		return scopeStorage([]string{"--json", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	var summary bus.StorageSummary
 	if err := json.Unmarshal(storageOutput.Bytes(), &summary); err != nil || summary.ScopeID != "storage-cli-e2e" {
 		t.Fatalf("unexpected storage summary: %#v, %v", summary, err)
@@ -738,11 +623,9 @@ func TestScopeStorageCommandsDefaultToDryRun(t *testing.T) {
 
 	cutoff := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	var dryOutput bytes.Buffer
-	if err := captureStdout(&dryOutput, func() error {
+	requireNoError(t, captureStdout(&dryOutput, func() error {
 		return scopePrune([]string{"--before", cutoff, "--json", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	var dryRun bus.PruneScopeResult
 	if err := json.Unmarshal(dryOutput.Bytes(), &dryRun); err != nil || !dryRun.DryRun || dryRun.Records.Tasks != 1 {
 		t.Fatalf("unexpected dry run: %#v, %v", dryRun, err)
@@ -751,11 +634,9 @@ func TestScopeStorageCommandsDefaultToDryRun(t *testing.T) {
 		t.Fatalf("dry run removed task: %#v, %v", tasks, err)
 	}
 
-	if err := captureStdout(&bytes.Buffer{}, func() error {
+	requireNoError(t, captureStdout(&bytes.Buffer{}, func() error {
 		return scopePrune([]string{"--before", cutoff, "--yes", "--address", address})
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	if tasks, err := owner.ListTasks(ctx, false); err != nil || len(tasks) != 0 {
 		t.Fatalf("confirmed prune kept task: %#v, %v", tasks, err)
 	}

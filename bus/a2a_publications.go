@@ -26,7 +26,7 @@ func scanAgentCardPublication(row rowScanner) (agentCardPublication, error) {
 const agentCardPublicationColumns = `publication_id,scope_id,agent_id,enabled,created_at,updated_at`
 
 func (s *Store) CreateAgentCardPublication(ctx context.Context, scopeID, agentID string) (agentCardPublication, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return agentCardPublication{}, err
 	}
@@ -80,7 +80,7 @@ func (s *Store) ListAgentCardPublications(ctx context.Context, scopeID string) (
 }
 
 func (s *Store) SetAgentCardPublicationEnabled(ctx context.Context, scopeID, publicationID string, enabled bool) (agentCardPublication, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx)
 	if err != nil {
 		return agentCardPublication{}, err
 	}
@@ -141,6 +141,7 @@ func (s *Store) PublishedAgent(ctx context.Context, publicationID string) (agent
 
 func (r *Runtime) CreateAgentCardPublication(ctx context.Context, scopeToken string, input PublishAgentCardInput) (agentCardPublication, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return agentCardPublication{}, err
 	}
@@ -156,6 +157,7 @@ func (r *Runtime) CreateAgentCardPublication(ctx context.Context, scopeToken str
 
 func (r *Runtime) ListAgentCardPublications(ctx context.Context, scopeToken string) ([]agentCardPublication, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +166,7 @@ func (r *Runtime) ListAgentCardPublications(ctx context.Context, scopeToken stri
 
 func (r *Runtime) SetAgentCardPublicationEnabled(ctx context.Context, scopeToken, publicationID string, enabled bool) (agentCardPublication, error) {
 	scopeID, err := r.scopeAuthority(ctx, scopeToken)
+	ctx = withScopeCredential(ctx, scopeToken)
 	if err != nil {
 		return agentCardPublication{}, err
 	}

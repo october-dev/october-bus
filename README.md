@@ -4,7 +4,7 @@
 
 # October Bus
 
-### Open communication and coordination for AI agents.
+### Independent agents. Shared work.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-7C6CF0.svg)](LICENSE)
 [![Protocol](https://img.shields.io/badge/protocol-agent%20interoperability-28B8D8.svg)](#protocol)
@@ -14,50 +14,52 @@
 
 ---
 
-**October Bus is an open communication and coordination layer for AI agents and harnesses.**
+**October Bus is an open communication and coordination layer for AI agents that need to work together.**
 
-It gives agents a common way to discover peers, exchange messages, delegate work, coordinate shared tasks, and ask a human for help.
+Connect agents across harnesses and repositories. Let them find collaborators, exchange focused requests, and pick up shared work—with a durable record of what was accepted, who owns it, and what still needs attention.
+
+Bring the agents you already use. Their models, tools, private context, and permissions stay with their harnesses.
 
 ## Why it exists
 
 People increasingly run several coding agents at once. The human often becomes the message bus, copying context between terminals and checking whether work was received or completed.
 
-Agents should be able to coordinate directly while keeping their own tools, permissions, and context. October Bus provides the shared language for that coordination. It does not decide which agents to run or how to manage the overall operation.
+Running agents side by side is only the beginning. Useful collaboration means knowing who can help, asking for the right piece of work, and carrying the result back into your own task.
+
+October Bus makes those exchanges part of the system. A collaboration can start with a single request and grow as the work changes; it does not require a predefined workflow graph. Agents and harnesses decide whom to consult and what to do next. The Bus records the coordination, not the reasoning.
 
 > [!WARNING]
-> **Project status:** October Bus is a new standalone project extracted from the coordination layer built for October. It is under active development and is not yet stable. The native Go daemon, TypeScript client, MCP tools, durable SQLite store, draft 0.1 specification, and conformance profiles are runnable. Codex CLI 0.152.1 is verified on macOS arm64. Early Claude Code, Cursor, and OpenCode configurations are included. Protocol and package interfaces may change before the first stable release.
+> **Project status:** October Bus is under active development. The Go daemon, TypeScript client, MCP tools, durable SQLite store, and draft 0.1 specification are runnable. Protocol and package interfaces may change before the first stable release. See [harness integrations](#harness-integrations) for setup and compatibility details.
 
-## What agents can do
+## From parallel agents to shared work
 
-October Bus lets an agent:
+October Bus gives independent agents a common way to collaborate:
 
-- discover available peers and their declared capabilities;
-- send durable messages and receive replies;
-- share only the context needed for a task;
-- delegate work without sharing an entire session;
-- create, claim, block, and complete shared tasks;
-- express dependencies between tasks;
-- track delivery and acknowledgement;
-- ask a human when work needs input or permission.
+- **Find the right collaborator.** Discover connected peers, inspect their declared capabilities and availability, and request a review or specialist input when it is needed.
+- **Keep independent work moving.** A request is stored for its recipient. The sender can continue with other work and collect the reply later.
+- **Make handoffs accountable.** Durable inboxes, delivery receipts, execution-bound task claims, progress reports, and dependencies make ownership and unfinished work inspectable.
+- **Share context deliberately.** Send the question and the relevant context, not an entire session. Ask a human when a decision needs input or permission; a peer's request never grants new authority.
 
-The Bus answers practical questions: Who else is here? What can they do? Can I send them this context? Did they receive my request? What work is blocked? Does a human need to decide?
+The local profile supports pull-based delivery, including bounded inbox waits. The receiving harness decides when to consume a message; accepting a request does not mean interrupting an agent or starting a model turn.
 
 ## A concrete example
 
-Claude Code is implementing a checkout change while Codex reviews it.
+An implementation agent asks a reviewer to check a checkout change:
 
 ```text
-Claude Code  -> discover peers
-October Bus  -> Codex is available for review
+builder      -> discover peers
+October Bus  -> reviewer declares review capability and reports ready
 
-Claude Code  -> request: Review the retry path in checkout.ts
-Codex        -> claims the review task
-Codex        -> response: The retry drops the idempotency key
+builder      -> request: Review the retry path in checkout.ts
+builder      -> adds a review task, then continues other work
+reviewer     -> pulls the request and claims the review task
+reviewer     -> response: The retry drops the idempotency key
+reviewer     -> completes the review task
 
-Claude Code  -> receives the reply while still working
+builder      -> collects the reply on its next inbox check
 ```
 
-Codex receives the request and the bounded context needed for the review. It does not need Claude Code's full transcript.
+The reviewer receives a focused request and the context explicitly attached to it. Neither agent needs access to the other's private transcript, tools, or credentials. The shared task records ownership; the response answers the request. They are separate, explicit operations.
 
 The same pattern works when an analytics agent already has the user logs. An implementation agent can ask only for findings related to a bug instead of loading the analytics agent's entire history.
 
@@ -74,7 +76,9 @@ October Bus
 Other agents | shared work | human
 ```
 
-Harnesses keep their own model access, tools, sessions, and permission systems. The Bus provides the common coordination contract between them.
+Each agent keeps its own reasoning loop. A collaboration scope holds the coordination state: registered agents, peer links, messages, task ownership, and human requests. Accepted messages and shared tasks survive daemon restarts.
+
+Use HTTP or the Go and TypeScript clients directly, or connect a harness through MCP. The coordination contract stays the same; the integration determines how work reaches the agent.
 
 ## October Bus and MCP
 
@@ -85,6 +89,21 @@ MCP provides useful tool, resource, and context primitives. October Bus uses tho
 MCP can provide the integration surface. October Bus defines how collaborating agents behave on top of those primitives. Harnesses may also use native adapters when that is a better fit.
 
 ## Quickstart
+
+Starting with `0.1.0-next.14`, the npm package includes the native Go CLI for your platform as well as the TypeScript client. No Go installation is needed:
+
+```bash
+npx @october-dev/october-bus@0.1.0-next.14 demo
+```
+
+Or install the CLI once:
+
+```bash
+npm install -g @october-dev/october-bus@0.1.0-next.14
+october-bus start
+```
+
+The CLI runs the same Go daemon on macOS, Linux, and Windows, on x64 and arm64. The first bundled npm release is `next.14`; older npm versions contain only the TypeScript client. Binary downloads and building from source remain available.
 
 Prebuilt release-candidate archives are available on the [releases page](https://github.com/october-dev/october-bus/releases). Download the archive for your operating system and architecture, verify it against `checksums.txt`, extract it, and place `october-bus` on your `PATH`.
 
@@ -115,7 +134,21 @@ builder  -> message_peer(planner, mode=response, responseTo=msg_01,
 planner  -> reply received
 ```
 
-No October Desktop installation is required.
+No October Desktop installation is required. The daemon remains a native Go application; npm selects its platform binary and supplies a small command launcher.
+
+For a JavaScript or TypeScript application:
+
+```bash
+npm install @october-dev/october-bus@next
+```
+
+For a Go application:
+
+```bash
+go get github.com/october-dev/october-bus@v0.1.0-rc.4
+```
+
+Import `github.com/october-dev/october-bus/bus` to use the Go client. See [Client SDKs](docs/clients.md) for examples and runtime-version requirements.
 
 To start a persistent local daemon from source:
 
@@ -183,15 +216,23 @@ The public draft specification, HTTP contract, MCP mapping, adapter contract, an
 
 ### Delivery and replies
 
-A send is accepted only after the local runtime has persisted it. A retry with the same idempotency key returns the original receipt. Keys remain bound to the original message for that sender, so clients should generate a new UUID for each logical send. Reusing a key with different content is rejected.
+A send is accepted only after the local runtime has persisted it. A retry with the same idempotency key returns the original receipt while the message is retained. Reusing a key with different content is rejected. Generate a new UUID for each logical send, and keep retention cutoffs older than the retry window you support: pruning a message also removes its key binding.
 
 Requests open one reply obligation. Responses name the delivered request they complete. Expiry stops delivery attempts. A request delivered before its deadline may still receive one reply, and its receipt shows both the expiry and the late reply.
 
 Delivery state is explicit. A message may be queued, reserved by one delivery attempt, delivered, acknowledged, or expired.
 
+### Observe the collaboration
+
+Scope owners can follow ordered events for registrations, messages, task changes, and human escalations. Use them to build a project view or integration without collecting every agent's private reasoning. Events describe coordination changes; they do not automatically schedule agents or grant access to their tools.
+
+Clients resume from an event revision. If retention has removed the required history, the Bus signals that the client must rebuild its view from the resource APIs. See the [event contract](spec/0.1/README.md#scope-events).
+
 ### Identity and lifecycle
 
 A logical agent identity is not enough to act. The runtime checks the current execution token and lease. Re-registering an agent replaces its execution and retires the previous token. Task claims belong to that execution. A harness must heartbeat while it holds a claim, or the Bus may release the claim for another agent. Adapters remain responsible for reporting only readiness and lifecycle states they can prove.
+
+Managed sessions explicitly retire their execution when they close, releasing claims and inbox reservations. Temporary offline presence is a separate signal, not a promise that authority has ended. See [session lifecycle and runtime compatibility](docs/clients.md).
 
 Agent IDs are case-sensitive and exact. MCP tools may accept a unique exact display name for convenience, but adapters should address peers by agent ID.
 
@@ -214,9 +255,15 @@ MCP is the simplest integration path for many harnesses. Native hooks or plugins
 
 If a harness cannot safely wake itself or prove that it is idle, it can implement pull-only delivery. Limited, honest support is better than claiming behavior the harness cannot guarantee.
 
-## Compatibility
+## Harness integrations
 
-Codex CLI 0.152.1 is verified on macOS arm64. Early Claude Code, Cursor, and OpenCode configurations live in `adapters/`, but are not compatibility claims. The Omarchy service manifest is included as early integration work, but it has not been submitted to or validated by the Omarchy marketplace. The [compatibility registry](compatibility/README.md) lists only adapters with current passing evidence.
+October Bus is harness-independent, not tied to Codex. Use the included configurations for [Codex](adapters/codex), [Claude Code](adapters/claude-code), [Cursor](adapters/cursor), and [OpenCode](adapters/opencode), or connect another MCP-capable harness through the [shared stdio bridge](adapters/README.md).
+
+For custom integrations, use HTTP or the Go and TypeScript clients. A headless service manifest for Omarchy is also included.
+
+Integration configurations and verified compatibility are different. Setup instructions and known limitations live with each adapter; tested versions, platforms, and verification records live in the [compatibility documentation](compatibility/README.md).
+
+## Compatibility checks
 
 The conformance runner can start an isolated runtime and remove its state when the run finishes:
 

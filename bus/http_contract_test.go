@@ -21,9 +21,7 @@ type httpContractFixture struct {
 func newHTTPContractFixture(t *testing.T) *httpContractFixture {
 	t.Helper()
 	runtimeValue, err := Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	server := NewServer(runtimeValue, ServerOptions{AdminToken: "contract-admin-token"})
 	t.Cleanup(func() {
 		if err := server.Stop(context.Background()); err != nil {
@@ -31,20 +29,12 @@ func newHTTPContractFixture(t *testing.T) *httpContractFixture {
 		}
 	})
 	scope, err := runtimeValue.CreateScope(context.Background(), CreateScopeInput{ID: "contract"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	planner, err := runtimeValue.RegisterAgent(context.Background(), scope.ScopeToken, RegisterAgentInput{ID: "planner", DisplayName: "Planner"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
 	reviewer, err := runtimeValue.RegisterAgent(context.Background(), scope.ScopeToken, RegisterAgentInput{ID: "reviewer", DisplayName: "Reviewer"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtimeValue.LinkAgents(context.Background(), scope.ScopeToken, planner.AgentID, reviewer.AgentID); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, err)
+	requireNoError(t, runtimeValue.LinkAgents(context.Background(), scope.ScopeToken, planner.AgentID, reviewer.AgentID))
 	return &httpContractFixture{server: server, scope: scope, planner: planner, reviewer: reviewer}
 }
 
@@ -54,9 +44,7 @@ func contractRequest(t *testing.T, fixture *httpContractFixture, method, path, t
 	var err error
 	if body != nil {
 		data, err = json.Marshal(body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, err)
 	}
 	request := httptest.NewRequest(method, path, bytes.NewReader(data))
 	if token != "" {
@@ -84,16 +72,10 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("Cache-Control = %q, want no-store", got)
 		}
 		var health Health
-		if err := json.Unmarshal(response.Body.Bytes(), &health); err != nil {
-			t.Fatal(err)
-		}
-		if health.Status != "ready" {
-			t.Fatalf("unexpected health response: %#v", health)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &health))
+		require(t, health.Status == "ready", "unexpected health response: %#v", health)
 		var object map[string]json.RawMessage
-		if err := json.Unmarshal(response.Body.Bytes(), &object); err != nil {
-			t.Fatal(err)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &object))
 		if _, enveloped := object["ok"]; enveloped {
 			t.Fatal("health response unexpectedly contains an ok envelope field")
 		}
@@ -108,12 +90,8 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("register returned HTTP %d: %s", response.Code, response.Body.String())
 		}
 		var envelope responseEnvelope[RegisterAgentResult]
-		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-			t.Fatal(err)
-		}
-		if !envelope.OK || envelope.Result.AgentToken == "" {
-			t.Fatalf("unexpected register response: %#v", envelope)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+		require(t, envelope.OK && envelope.Result.AgentToken != "", "unexpected register response: %#v", envelope)
 	})
 
 	t.Run("list agents array", func(t *testing.T) {
@@ -126,12 +104,8 @@ func TestHTTPContract(t *testing.T) {
 			OK     bool              `json:"ok"`
 			Result []json.RawMessage `json:"result"`
 		}
-		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-			t.Fatal(err)
-		}
-		if !envelope.OK || len(envelope.Result) != 2 {
-			t.Fatalf("unexpected list response: %#v", envelope)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+		require(t, envelope.OK && len(envelope.Result) == 2, "unexpected list response: %#v", envelope)
 	})
 
 	t.Run("link left/right", func(t *testing.T) {
@@ -143,12 +117,8 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("link returned HTTP %d: %s", response.Code, response.Body.String())
 		}
 		var envelope responseEnvelope[map[string]bool]
-		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-			t.Fatal(err)
-		}
-		if !envelope.OK || len(envelope.Result) != 1 || !envelope.Result["linked"] {
-			t.Fatalf("unexpected link response: %#v", envelope)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+		require(t, envelope.OK && len(envelope.Result) == 1 && envelope.Result["linked"], "unexpected link response: %#v", envelope)
 
 		for name, body := range map[string]any{
 			"from/to":       map[string]any{"from": fixture.planner.AgentID, "to": fixture.reviewer.AgentID},
@@ -160,12 +130,8 @@ func TestHTTPContract(t *testing.T) {
 					t.Fatalf("invalid link returned HTTP %d: %s", response.Code, response.Body.String())
 				}
 				var envelope responseEnvelope[json.RawMessage]
-				if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-					t.Fatal(err)
-				}
-				if envelope.OK || envelope.Error.Code != CodeInvalidArgument {
-					t.Fatalf("unexpected invalid link response: %#v", envelope)
-				}
+				requireNoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+				require(t, !envelope.OK && envelope.Error.Code == CodeInvalidArgument, "unexpected invalid link response: %#v", envelope)
 			})
 		}
 	})
@@ -179,11 +145,7 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("send returned HTTP %d: %s", response.Code, response.Body.String())
 		}
 		var envelope responseEnvelope[DeliveryReceipt]
-		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-			t.Fatal(err)
-		}
-		if !envelope.OK || envelope.Result.MessageID == "" || envelope.Result.State != DeliveryQueued {
-			t.Fatalf("unexpected send response: %#v", envelope)
-		}
+		requireNoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+		require(t, envelope.OK && envelope.Result.MessageID != "" && envelope.Result.State == DeliveryQueued, "unexpected send response: %#v", envelope)
 	})
 }
