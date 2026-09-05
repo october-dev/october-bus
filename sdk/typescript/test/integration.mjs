@@ -99,7 +99,7 @@ try {
   const scopedAccess = await fetch(`${run.address}/v1/agents`, {
     headers: { authorization: `Bearer ${issuedPrincipal.credential}` }
   })
-  assert.equal(scopedAccess.status, 401)
+  assert.equal(scopedAccess.status, 403)
   const disabledPrincipal = await owner.setA2APrincipalEnabled(issuedPrincipal.principal.id, false)
   assert.equal(disabledPrincipal.enabled, false)
   const rotatedPrincipal = await owner.rotateA2APrincipal(issuedPrincipal.principal.id)
