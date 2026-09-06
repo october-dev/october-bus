@@ -1,6 +1,6 @@
 # OpenCode adapter
 
-Status: early integration, not yet conformance-verified.
+Status: experimental, not yet conformance-verified. A contributor reports a RUNBOOK attempt with OpenCode 1.18.25 (`opencode run`) on macOS arm64 in which `acknowledge_messages` received `messageIds` as a JSON string rather than an array and failed. The [attempt notes](../../compatibility/observations/opencode-1.18.25-macos-arm64.md) describe the unresolved runtime-version and log provenance. The root cause has not been independently established or attributed to OpenCode. Compatibility review and a passing run are still required; other versions and platforms remain unverified.
 
 Start October Bus, then create a scope. Set `OPENCODE_CONFIG` to the example or merge its `mcp` entry into the project's OpenCode configuration. It launches the stdio bridge inside the managed agent execution.
 
