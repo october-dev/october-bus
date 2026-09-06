@@ -32,6 +32,10 @@ Record every host prompt, approval, limitation, result, and version. A model ret
 
 ## Evidence
 
+Use the [maintainer-assisted verification workflow](VERIFICATION.md) when an account or platform is unavailable, or to package sanitized logs for review. Partial and not-run attempts are observations, not formal passing evidence.
+
 Create one JSON record that validates against [`compatibility-evidence.schema.json`](../spec/0.1/schemas/compatibility-evidence.schema.json). Hash the complete run log with SHA-256 and place that digest in `resultDigest`.
+
+Review and sanitize the log before publication, preserving the scenario evidence. `resultDigest` must hash the exact published sanitized bytes; include an HTTPS `attestation` link to those artifacts. Redaction tooling does not replace manual privacy or compatibility review.
 
 A passing record must use a public repository commit and a released harness version. Add it to `registry.json` only after independent review confirms the required profile passed.

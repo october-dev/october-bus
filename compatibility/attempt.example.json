@@ -1,0 +1,16 @@
+{
+  "harnessFamily": "Example Harness",
+  "harnessVersion": "1.2.3",
+  "adapterId": "example-mcp",
+  "adapterVersion": "0.1.0",
+  "protocolVersion": "0.1",
+  "runtimeVersion": "v0.1.0-rc.4",
+  "operatingSystem": "linux",
+  "architecture": "amd64",
+  "profile": "mcp-adapter",
+  "repositoryCommit": "0000000000000000000000000000000000000000",
+  "verificationMode": "manual",
+  "attemptedAt": "2026-09-06T00:00:00Z",
+  "outcome": "not-run",
+  "limitations": ["Example only: replace every value with actual attempt metadata"]
+}

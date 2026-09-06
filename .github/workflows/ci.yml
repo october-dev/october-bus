@@ -45,6 +45,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:errors
+      - run: node --test ../../scripts/verification-bundle.test.mjs
       - run: npm audit --audit-level=high
 
   interoperability:

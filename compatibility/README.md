@@ -2,13 +2,15 @@
 
 October Bus names a harness as verified only when a current public evidence record passes the applicable conformance profile.
 
-The registry starts empty. Experimental adapter manifests do not count as compatibility evidence.
+The registry contains only independently reviewed passing records. Experimental adapter manifests and unreviewed attempt bundles do not count as compatibility evidence.
 
 Each evidence record must validate against [`compatibility-evidence.schema.json`](../spec/0.1/schemas/compatibility-evidence.schema.json) and include the harness version, adapter version, Bus versions, platform, result digest, verification time, repository commit, limitations, and verification mode. The registry itself is validated against [`compatibility-registry.schema.json`](../spec/0.1/schemas/compatibility-registry.schema.json).
 
 `registry.json` contains paths to current passing evidence. Failed or stale records may remain for history but must be removed from the registry.
 
 Use the [harness verification runbook](RUNBOOK.md) to produce a reproducible evidence record.
+
+Missing an account or platform? Use [maintainer-assisted verification](VERIFICATION.md) to request a run and prepare a local, sanitized, unreviewed log bundle. CI validates all formal evidence files, including records not listed in the registry.
 
 The automated `mcp-adapter` runner verifies an adapter executable without asking a model to perform the checks. This establishes the transport and coordination behavior of the adapter. It does not establish compatibility for a named harness. A harness enters this registry only after its released version also completes the runbook through that adapter.
 
