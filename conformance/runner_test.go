@@ -65,7 +65,7 @@ func TestMCPAdapterProfile(t *testing.T) {
 		Address: address, AdminToken: "conformance-admin-token", Command: binary, Args: []string{"mcp", "stdio"},
 	})
 	requireNoError(t, err)
-	require(t, result.Profile == conformance.ProfileMCPAdapter && result.ProtocolVersion == bus.ProtocolVersion && len(result.Passed) == 13 && len(result.Failed) == 0 && result.CompletedAt != "", "unexpected result: %#v", result)
+	require(t, result.Profile == conformance.ProfileMCPAdapter && result.ProtocolVersion == bus.ProtocolVersion && len(result.Passed) == 14 && len(result.Failed) == 0 && result.CompletedAt != "", "unexpected result: %#v", result)
 }
 
 func TestMCPAdapterFailureNamesStartupCheck(t *testing.T) {
