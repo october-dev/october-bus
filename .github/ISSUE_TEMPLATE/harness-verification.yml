@@ -1,0 +1,60 @@
+name: Maintainer-assisted harness verification
+description: Request a named-harness run without buying an account or owning another platform.
+title: "Verification request: "
+labels: [adapter]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Experimental contributions are welcome without paid accounts or every OS.
+        This request does not approve code execution or certify compatibility.
+        Never post credentials, raw logs, private prompts, or account access links.
+  - type: input
+    id: revision
+    attributes:
+      label: PR and immutable commit
+      description: Link the contribution and supply its full 40-character commit SHA for review. Do not use only a branch name.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Exact versions and target platform
+      description: Harness product/version, adapter ID/version, released Bus version, protocol/profile, OS and architecture. Mark unknown versions explicitly.
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Public setup and permission requirements
+      description: Link public installation/configuration instructions and describe expected approvals, authentication, and network access. Use placeholder variable names, never live values.
+    validations:
+      required: true
+  - type: textarea
+    id: scenarios
+    attributes:
+      label: Scenarios to run and observed failures
+      description: Name missing RUNBOOK steps, expected results, reproducible failures, and whether this was a named-harness or generic bridge attempt. Include restart, replacement, and cleanup coverage.
+    validations:
+      required: true
+  - type: textarea
+    id: access
+    attributes:
+      label: Assistance needed
+      description: Describe the missing platform, account, or manual interaction. Maintainers keep control of their own accounts; contributors do not need to share or purchase credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Reviewed artifact links and limitations
+      description: Optional public sanitized log/bundle link and its digest, or say that no shareable artifact exists. Do not paste raw logs. State partial/not-run outcomes honestly.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Disclosure checks
+      options:
+        - label: This request contains no live credentials, private log contents, or access invitations.
+          required: true
+        - label: I understand that experimental status and generic CI do not certify a named harness.
+          required: true
