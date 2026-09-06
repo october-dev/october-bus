@@ -302,6 +302,88 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 		return result, err
 	}
 
+	if err := record.check("long-poll-delivery", func() error {
+	// Verify adapter-managed long-poll delivery: a blocked check_inbox with a
+	// positive waitMs receives a message enqueued while the poll is in flight,
+	// the reservation is committed inside the adapter's runtime (not by this
+	// check), and the delivery is acknowledged exactly once through the adapter.
+	// This does NOT assert ready-edge behavior — enqueue itself wakes a blocked
+	// reserve regardless of agent readiness, so the check passes without a
+	// ready transition. Ready-edge conformance requires a genuinely host-paused
+	// consumer and is out of scope for this generic delivery check.
+	drainReg, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{
+		ID: "drain-host", DisplayName: "Drain Host", LeaseMS: 30000,
+	})
+	if err != nil {
+		return err
+	}
+	if err := owner.LinkAgents(ctx, "controller", "drain-host"); err != nil {
+		return err
+	}
+	drainAdapter, err := connectAdapter(ctx, options, scope.ScopeToken, drainReg)
+	if err != nil {
+		return err
+	}
+	logs = append(logs, drainAdapter.stderr)
+	defer func() { _ = drainAdapter.close() }()
+
+	// Block the adapter's inbox loop in a long waitMs reserve. The reservation
+	// is adapter-managed: check_inbox performs ReserveInbox then CommitInbox
+	// inside the adapter-under-test's runtime, so this check never issues a
+	// reservation of its own.
+	type inboxOutcome struct {
+		messages []bus.Message
+		err      error
+	}
+	inboxDone := make(chan inboxOutcome, 1)
+	go func() {
+		inbox, err := callTool[struct {
+			Messages []bus.Message `json:"messages"`
+		}](ctx, drainAdapter.session, "check_inbox", map[string]any{"limit": 10, "waitMs": 8000})
+		inboxDone <- inboxOutcome{messages: inbox.Messages, err: err}
+	}()
+	// Let the reserve actually subscribe before anything else runs.
+	time.Sleep(50 * time.Millisecond)
+
+	// Queue a delivery while the host's loop is blocked in the long poll.
+	queued, err := controller.SendMessage(ctx, bus.SendMessageInput{
+		To: "drain-host", Body: "queued during long poll",
+	})
+	if err != nil {
+		return err
+	}
+
+	// The blocked adapter-managed reserve must return exactly the queued
+	// delivery, and promptly. Enqueue wakes a blocked reserve, so the poll
+	// should resolve well before its 8s waitMs budget.
+	select {
+	case got := <-inboxDone:
+		if got.err != nil {
+			return got.err
+		}
+		if len(got.messages) != 1 || got.messages[0].ID != queued.MessageID {
+			return fmt.Errorf("long-poll did not return the queued delivery: %#v", got.messages)
+		}
+	case <-time.After(2 * time.Second):
+		return errors.New("adapter inbox loop did not receive within 2s of enqueue")
+	}
+
+	// The adapter already committed its reservation inside check_inbox.
+	// Acknowledge exactly one delivery through the adapter.
+	acknowledged, err := callTool[map[string]int64](ctx, drainAdapter.session, "acknowledge_messages", map[string]any{
+		"messageIds": []string{queued.MessageID},
+	})
+	if err != nil {
+		return err
+	}
+	if acknowledged["acknowledged"] != 1 {
+		return fmt.Errorf("expected exactly one acknowledgement, got %#v", acknowledged)
+	}
+	return nil
+	}); err != nil {
+		return result, err
+	}
+
 	if err := record.check("exact-peer-discovery", func() error {
 		peers, err := callTool[struct {
 			Peers []bus.Agent `json:"peers"`

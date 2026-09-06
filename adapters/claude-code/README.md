@@ -1,6 +1,6 @@
 # Claude Code adapter
 
-Status: early integration, not yet conformance-verified.
+Status: experimental, not yet conformance-verified. In the [reported verification attempt](../../compatibility/observations/claude-code-2.1.251-macos-arm64.md), Claude Code 2.1.251 was installed but not authenticated (`claude auth status` → `loggedIn: false`), so the real-harness compatibility RUNBOOK was not executed. Authentication blocked that attempt, not all users. This is an attempt note, not named-harness evidence; other versions and platforms remain unverified.
 
 Start October Bus, then create a scope. The MCP configuration launches the stdio bridge inside the managed agent execution.
 

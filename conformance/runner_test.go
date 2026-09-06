@@ -85,7 +85,7 @@ func TestMCPAdapterProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Profile != conformance.ProfileMCPAdapter || result.ProtocolVersion != bus.ProtocolVersion || len(result.Passed) != 13 || len(result.Failed) != 0 || result.CompletedAt == "" {
+	if result.Profile != conformance.ProfileMCPAdapter || result.ProtocolVersion != bus.ProtocolVersion || len(result.Passed) != 14 || len(result.Failed) != 0 || result.CompletedAt == "" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
