@@ -277,9 +277,19 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 			count, err := s.runtime.AcknowledgeMessages(ctx, token, input.MessageIDs)
 			return nil, map[string]int64{"acknowledged": count}, err
 		})
+	// Avoid naming this field Title: jsonschema-go treats a top-level Go field
+	// with that name as the schema's title annotation and omits the JSON
+	// property. The MCP validator would then reject the required task title.
+	type addTaskInput struct {
+		TaskTitle    string   `json:"title"`
+		Description  string   `json:"description,omitempty"`
+		Dependencies []string `json:"dependencies,omitempty"`
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: "add_task", Description: "Add a shared task with optional dependencies."},
-		func(ctx context.Context, _ *mcp.CallToolRequest, input AddTaskInput) (*mcp.CallToolResult, any, error) {
-			result, err := s.runtime.AddTask(ctx, token, input)
+		func(ctx context.Context, _ *mcp.CallToolRequest, input addTaskInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.AddTask(ctx, token, AddTaskInput{
+				Title: input.TaskTitle, Description: input.Description, Dependencies: input.Dependencies,
+			})
 			return nil, result, err
 		})
 	type taskIDInput struct {

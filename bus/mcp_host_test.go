@@ -103,6 +103,51 @@ func TestServeMCPHostPolicy(t *testing.T) {
 	assertFailure(request(server, "192.168.1.20:4765", false), http.StatusUnauthorized, CodeUnauthenticated)
 }
 
+func TestMCPAddTaskSchemaIncludesTitle(t *testing.T) {
+	agents := setupAgents(t, ":memory:")
+	defer agents.runtime.Close()
+	server := NewServer(agents.runtime, ServerOptions{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	request.Host = "127.0.0.1:4765"
+	request.Header.Set("Authorization", "Bearer "+agents.plannerToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("tools/list failed: status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					Properties map[string]any `json:"properties"`
+					Required   []string       `json:"required"`
+				} `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range payload.Result.Tools {
+		if tool.Name != "add_task" {
+			continue
+		}
+		if _, ok := tool.InputSchema.Properties["title"]; !ok {
+			t.Fatalf("add_task schema omitted title: %s", response.Body.String())
+		}
+		for _, required := range tool.InputSchema.Required {
+			if required == "title" {
+				return
+			}
+		}
+		t.Fatalf("add_task schema did not require title: %s", response.Body.String())
+	}
+	t.Fatal("add_task tool was not listed")
+}
+
 func TestDaemonAllowedHostsEnvironment(t *testing.T) {
 	t.Setenv("OCTOBER_BUS_ALLOWED_HOSTS", " a:1 , , b:2 ,a:1 ")
 	root := t.TempDir()
