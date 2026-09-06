@@ -70,6 +70,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:errors": "node test/errors.mjs && node --test test/sessions.mjs test/cli.mjs",
     "test:integration": "node test/integration.mjs",
+    "test:release": "node ../../scripts/validate-launch.mjs --scripts-only",
+    "validate:launch": "node ../../scripts/validate-launch.mjs",
     "build:native": "node ../../scripts/npm-distribution.mjs build",
     "pack:distribution": "node ../../scripts/npm-distribution.mjs pack",
     "test:distribution": "node ../../scripts/test-npm-install.mjs",

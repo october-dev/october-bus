@@ -4,12 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   runtime:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +45,7 @@ jobs:
         working-directory: sdk/typescript
 
   npm-platforms:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -57,6 +60,7 @@ jobs:
         working-directory: sdk/typescript
 
   typescript-sdk:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -72,10 +76,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:errors
-      - run: node --test ../../scripts/release-policy.test.mjs ../../scripts/publish-npm.test.mjs
+      - run: npm run test:release
       - run: npm audit --audit-level=high
 
   interoperability:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -99,6 +104,7 @@ jobs:
           OCTOBER_BUS_BINARY: /tmp/october-bus
 
   vulnerabilities:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: golang/govulncheck-action@v1

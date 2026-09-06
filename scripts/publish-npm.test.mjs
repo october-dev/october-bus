@@ -8,6 +8,20 @@ const notFound = () => Object.assign(new Error('missing'), { stdout: JSON.string
 
 test('packed SDK pins every native optional package to the parent version', () => {
   assert.deepEqual(distributionManifest().optionalDependencies, Object.fromEntries(packages.slice(0, -1).map(pkg => [pkg.name, manifest.version])))
+  assert.equal(distributionManifest().scripts, undefined)
+  assert.equal(distributionManifest().devDependencies, undefined)
+})
+
+test('a conflict or outage on the final preflight performs no publishes', () => {
+  for (const failure of ['conflict', 'outage']) {
+    assert.throws(() => publishDistribution(packages, args => {
+      assert.equal(args[0], 'view', 'preflight must finish before publishing anything')
+      if (args[1] !== `${manifest.name}@${manifest.version}`) throw notFound()
+      if (failure === 'outage') throw new Error('registry unavailable')
+      return JSON.stringify('different')
+    }), failure === 'outage' ? /registry unavailable/ : /different contents/)
+  }
+  assert.throws(() => publishDistribution(packages.slice(1), () => assert.fail('no registry request expected')), /exactly six/)
 })
 
 test('publishes all native packages before the parent, with provenance and exact integrity', () => {

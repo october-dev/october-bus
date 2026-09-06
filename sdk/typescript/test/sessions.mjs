@@ -10,10 +10,13 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done })
   return { promise, resolve }
 }
+const healthy = { name: 'october-bus', protocolVersion: '0.1', status: 'ready', features: ['session-retirement'] }
+const mockRuntime = (t, handler) => t.mock.method(globalThis, 'fetch', async (url, request) =>
+  url.endsWith('/health') ? ok(healthy) : handler(url, request))
 
 test('failed initial heartbeat retires registration without hiding the startup error', async (t) => {
   let retired = 0
-  t.mock.method(globalThis, 'fetch', async (url) => {
+  mockRuntime(t, async (url) => {
     if (url.endsWith('/agents')) return ok(registration)
     if (url.endsWith('/retire')) { retired++; return ok({ retired: true }) }
     throw new Error('initial heartbeat failed')
@@ -26,7 +29,7 @@ test('close drains setState, is shared, and rejects further operations', async (
   const workingStarted = deferred()
   const releaseWorking = deferred()
   const order = []
-  t.mock.method(globalThis, 'fetch', async (url, request) => {
+  mockRuntime(t, async (url, request) => {
     if (url.endsWith('/agents')) return ok(registration)
     if (url.endsWith('/retire')) { order.push('retired'); return ok({ retired: true }) }
     const { lifecycle } = JSON.parse(request.body)
@@ -49,13 +52,15 @@ test('close drains setState, is shared, and rejects further operations', async (
 test('abort during registration retires once the committed result arrives', async (t) => {
   const controller = new AbortController()
   const registered = deferred()
+  const registering = deferred()
   let retired = 0
-  t.mock.method(globalThis, 'fetch', async (url) => {
-    if (url.endsWith('/agents')) { await registered.promise; return ok(registration) }
+  mockRuntime(t, async (url) => {
+    if (url.endsWith('/agents')) { registering.resolve(); await registered.promise; return ok(registration) }
     if (url.endsWith('/retire')) { retired++; return ok({ retired: true }) }
     assert.fail('canceled startup must not heartbeat')
   })
   const starting = OctoberBusAgentSession.start({ ...options, signal: controller.signal })
+  await registering.promise
   controller.abort(new Error('canceled startup'))
   registered.resolve()
   await assert.rejects(starting, /canceled startup/)
@@ -65,7 +70,7 @@ test('abort during registration retires once the committed result arrives', asyn
 test('heartbeat failure still attempts retirement and preserves the error', async (t) => {
   let beats = 0
   let retired = 0
-  t.mock.method(globalThis, 'fetch', async (url) => {
+  mockRuntime(t, async (url) => {
     if (url.endsWith('/agents')) return ok(registration)
     if (url.endsWith('/retire')) { retired++; throw new Error('cleanup failed') }
     if (++beats > 1) throw new Error('authority lost')
@@ -84,7 +89,7 @@ test('close cancels an in-flight background heartbeat without reporting failure'
   const heartbeatStarted = deferred()
   let beats = 0
   let retired = 0
-  t.mock.method(globalThis, 'fetch', async (url, request) => {
+  mockRuntime(t, async (url, request) => {
     if (url.endsWith('/agents')) return ok(registration)
     if (url.endsWith('/retire')) { retired++; return ok({ retired: true }) }
     if (++beats === 1) return ok({ lifecycle: 'starting' })
@@ -99,4 +104,45 @@ test('close cancels an in-flight background heartbeat without reporting failure'
   await session.close()
   assert.equal(session.error, undefined)
   assert.equal(retired, 1)
+})
+
+test('incompatible health fails before sending credentials or replacing an execution', async (t) => {
+  for (const health of [{ ...healthy, features: undefined }, { ...healthy, protocolVersion: '0.2' }, { ...healthy, status: 'not_ready' }]) {
+    let calls = 0
+    const mock = t.mock.method(globalThis, 'fetch', async (url, request) => {
+      calls++
+      assert.ok(url.endsWith('/health'))
+      assert.equal(request.headers.authorization, undefined)
+      return ok(health)
+    })
+    await assert.rejects(OctoberBusAgentSession.start(options), error => error.code === 'CONFLICT')
+    assert.equal(calls, 1)
+    mock.mock.restore()
+  }
+})
+
+test('failed state writes do not become background state; queued writes remain ordered', async (t) => {
+  const started = deferred()
+  const release = deferred()
+  const calls = []
+  mockRuntime(t, async (url, request) => {
+    if (url.endsWith('/agents')) return ok(registration)
+    if (url.endsWith('/retire')) return ok({ retired: true })
+    const state = JSON.parse(request.body)
+    calls.push(state.lifecycle)
+    if (state.lifecycle === 'ready') { started.resolve(); await release.promise }
+    if (state.lifecycle === 'working') throw new Error('state rejected')
+    return ok(state)
+  })
+  const session = await OctoberBusAgentSession.start(options)
+  t.after(() => session.close())
+  const ready = session.setState('ready', true)
+  await started.promise
+  const failed = assert.rejects(session.setState('working', false), /state rejected/)
+  // Invoke the same queue operation used by the timer without real-time waits.
+  const background = session.enqueueHeartbeat()
+  assert.deepEqual(calls, ['starting', 'ready'])
+  release.resolve()
+  await Promise.all([ready, failed, background])
+  assert.deepEqual(calls, ['starting', 'ready', 'working', 'ready'])
 })

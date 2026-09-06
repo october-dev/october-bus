@@ -267,6 +267,7 @@ func (s *Server) health(response http.ResponseWriter, request *http.Request) err
 	writeJSON(response, httpStatus, Health{
 		Name: "october-bus", ProtocolVersion: ProtocolVersion, RuntimeVersion: Version,
 		Status: status, StartedAt: s.options.StartedAt, Storage: storage,
+		Features: []string{FeatureSessionRetirement},
 	})
 	return nil
 }

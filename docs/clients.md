@@ -2,6 +2,20 @@
 
 October Bus ships a Go client in this module and a TypeScript client on npm. From `0.1.0-next.14`, the npm package also installs the matching native Go daemon and exposes the `october-bus` command. SDK imports do not load or start the daemon.
 
+## Runtime and SDK compatibility
+
+| Client / distribution | Runtime requirement | Boundary |
+| --- | --- | --- |
+| Go module pinned to `v0.1.0-rc.4` | rc.4's documented protocol subset | Does not include the new managed-retirement helper. |
+| npm versions before `next.14` | Check that published version's documentation | SDK-only packages; installing one does not install a daemon. |
+| Updated Go/TypeScript managed sessions in this branch | Ready protocol `0.1` with `/health.features` containing `session-retirement` | Checked before registration; rc.4 and missing feature declarations are rejected. |
+| Bundled npm CLI, starting with published `next.14` | Its exact-version native optional package | Launcher rejects missing/mismatched native packages; remote SDK connections are still checked separately. |
+| Direct HTTP/SDK calls | An endpoint implementing each operation used | Low-level clients do not negotiate every optional operation automatically. |
+
+The health feature declaration is additive and independent of version labels. It does not confer authority: registration, heartbeat and retirement still authenticate every request. Missing `features` means no declared features; ignore unknown feature names. A compatible independently implemented daemon can advertise `session-retirement` only if it implements the complete retirement contract. Managed-session startup returns `CONFLICT` for incompatible health; transport or unavailable-health errors retain their normal failure semantics. No scope or agent token is sent to the health endpoint.
+
+Before stable, pin the versions you deploy together. Breaking protocol changes require a new protocol version and retained prior specification, even while runtime/SDK packages are prereleases. Do not infer availability from a source manifest or infer feature support from a higher-looking version number.
+
 ## Credentials
 
 Use the narrowest credential for each operation:
@@ -84,6 +98,8 @@ latest, err := (bus.Client{Address: address, Token: reader.Credential}).LatestOu
 Every Go call accepts a context. The default HTTP client has a 30-second timeout. Supply `Client.HTTP` to set a different transport or timeout.
 
 Use `bus.StartAgentSession` when an adapter needs registration, heartbeat, execution-replacement detection, and retirement managed outside the model loop. Close and context cancellation attempt to retire the execution and release claims/reservations; `Done` closes after cleanup is attempted. Inspect `Err` for heartbeat or cleanup failure. A replaced token can never retire its successor. This helper requires the retirement endpoint and is not backward compatible with the rc.4 daemon.
+
+Go `SetState` and TypeScript `setState` serialize writes and update their remembered state only after success. Scheduled heartbeats read the last confirmed state in that same ordering. A failed network response is not proof of rollback on the server: retry the desired state or close the session instead of assuming the failed change took effect.
 
 ## TypeScript
 

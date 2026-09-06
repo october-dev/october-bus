@@ -2,6 +2,8 @@
 
 Status date: 2026-09-06. Baseline audit: 2026-09-05, commit `e65eef2158aeed6c27493000f85de6b940675c2e`. This document records the subsequent working-tree implementation, not an already published release or certification.
 
+Follow-up: PR #109 at `33659f7` passed all seven hosted checks, including native Linux/macOS/Windows installation tests. The subsequent ten-item preparation pass is recorded in [launch validation](launch-validation.md); its combined runtime tests, package rebuilds and actual-binary rehearsal are deliberately deferred. Earlier green checks must not be presented as results for those new changes.
+
 The concrete code defects in F01–F10 have fixes and regression coverage. F11 has a repository-side release check, and the approved one-review and code-owner requirements are now enabled on live `main`. The existing owner bypass remains in place. **A stable launch is not yet certified.** Native candidate CI, released-binary upgrade rehearsal, current harness evidence, and the remaining release-policy decisions below remain gates.
 
 ## Findings and changes

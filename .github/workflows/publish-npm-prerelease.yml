@@ -46,7 +46,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:errors
-      - run: node --test ../../scripts/release-policy.test.mjs ../../scripts/publish-npm.test.mjs
+      - run: npm run test:release
       - run: npm run build:native -- --all
       - run: npm run test:integration
         env:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: npm-distribution
-          path: dist/npm/*.tgz
+          path: dist/npm/*.tgz*
           if-no-files-found: error
 
   smoke:

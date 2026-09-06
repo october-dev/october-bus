@@ -90,7 +90,18 @@ MCP can provide the integration surface. October Bus defines how collaborating a
 
 ## Quickstart
 
-Starting with `0.1.0-next.14`, the npm package includes the native Go CLI for your platform as well as the TypeScript client. No Go installation is needed:
+Prebuilt release-candidate archives are available on the [releases page](https://github.com/october-dev/october-bus/releases). Download the archive for your operating system and architecture, verify it against `checksums.txt`, extract it, and place `october-bus` on your `PATH`:
+
+```bash
+october-bus version
+october-bus demo
+```
+
+### Upcoming npm CLI
+
+This branch prepares `0.1.0-next.14`, the first npm package with a native Go CLI as well as the TypeScript client. Preparing the code does not publish the package. Until that version appears in the [npm version history](https://www.npmjs.com/package/@october-dev/october-bus?activeTab=versions), use the archives above or build from source below.
+
+After publication, no Go installation is needed:
 
 ```bash
 npx @october-dev/october-bus@0.1.0-next.14 demo
@@ -103,9 +114,9 @@ npm install -g @october-dev/october-bus@0.1.0-next.14
 october-bus start
 ```
 
-The CLI runs the same Go daemon on macOS, Linux, and Windows, on x64 and arm64. The first bundled npm release is `next.14`; older npm versions contain only the TypeScript client. Binary downloads and building from source remain available.
+The CLI runs the same Go daemon on macOS, Linux, and Windows, on x64 and arm64. Older npm versions contain only the TypeScript client. An unqualified `npx @october-dev/october-bus` follows npm's `latest` tag, not `next`; use the explicit published prerelease while evaluating the CLI.
 
-Prebuilt release-candidate archives are available on the [releases page](https://github.com/october-dev/october-bus/releases). Download the archive for your operating system and architecture, verify it against `checksums.txt`, extract it, and place `october-bus` on your `PATH`.
+### Build from source
 
 Building October Bus from source requires Go 1.25 or newer.
 
@@ -149,6 +160,8 @@ go get github.com/october-dev/october-bus@v0.1.0-rc.4
 ```
 
 Import `github.com/october-dev/october-bus/bus` to use the Go client. See [Client SDKs](docs/clients.md) for examples and runtime-version requirements.
+
+Published prereleases and this development branch can expose different operations. Use the [compatibility matrix](docs/clients.md#runtime-and-sdk-compatibility); a source checkout or a passing CI run is not a publication or a stable compatibility promise.
 
 To start a persistent local daemon from source:
 

@@ -3,16 +3,24 @@ import { fileURLToPath } from 'node:url'
 
 export function approvedForRelease(pr, reviews, sha) {
   if (!pr.merged_at || pr.base?.ref !== 'main' || pr.merge_commit_sha !== sha) return false
+  const trusted = review => review.user?.type === 'User' && typeof review.user.login === 'string' &&
+    ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(review.author_association)
   const latest = new Map()
   for (const review of [...reviews].sort((a, b) => a.id - b.id)) {
-    // Comments do not dismiss an approval; explicit review states do.
-    if (review.state !== 'COMMENTED') latest.set(review.user?.login, review)
+    // Comments and unpublished drafts do not dismiss a submitted review.
+    if (trusted(review) && ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)) {
+      latest.set(review.user.login.toLowerCase(), review)
+    }
   }
+  // One maintainer approval must not silently override another maintainer's
+  // unresolved changes request, including one submitted after the merge.
+  if ([...latest.values()].some(review => review.state === 'CHANGES_REQUESTED')) return false
   return [...latest.values()].some((review) =>
     review.state === 'APPROVED' &&
     review.commit_id === pr.head?.sha &&
-    review.user?.type === 'User' &&
-    review.user.login !== pr.user?.login
+    review.user.login.toLowerCase() !== pr.user?.login?.toLowerCase() &&
+    Number.isFinite(Date.parse(review.submitted_at)) &&
+    Date.parse(review.submitted_at) <= Date.parse(pr.merged_at)
   )
 }
 
@@ -32,7 +40,7 @@ function verifyRelease() {
     const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repository}/pulls/${candidate.number}/reviews?per_page=100`], { encoding: 'utf8' }))
     if (approvedForRelease(pr, pages.flat(), sha)) return
   }
-  throw new Error('Release must tag a merged main PR with an independent approval of its final head')
+  throw new Error('Release requires a merged main PR approved at its final head before merge by an independent owner/member/collaborator, with no unresolved trusted change requests')
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) verifyRelease()

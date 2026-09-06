@@ -6,7 +6,9 @@ Starting with `0.1.0-next.14`, this package includes a launcher for the native G
 
 The client is in active development and has not reached a stable release. Before 1.0, its API, schemas, and protocol behavior may change between releases.
 
-Managed sessions require a runtime with `POST /v1/me/retire`. Close and cancellation drain lifecycle writes and attempt permanent execution retirement; temporary offline heartbeats are distinct. Inspect `session.error` for heartbeat or cleanup failure. Failed cleanup falls back to lease expiry. Do not use this updated session helper against rc.4.
+Managed sessions check unauthenticated `/health` before registration and require a ready protocol `0.1` runtime advertising `features: ["session-retirement"]`. A missing feature or incompatible protocol fails with `BusError.code === 'CONFLICT'` before replacing an execution. Close and cancellation drain lifecycle writes and attempt permanent execution retirement; temporary offline heartbeats are distinct. Inspect `session.error` for heartbeat or cleanup failure. Failed cleanup falls back to lease expiry. Do not use this updated session helper against rc.4.
+
+`setState` commits the local state only after a successful heartbeat. Background heartbeats use the last confirmed state. A network failure can still have an ambiguous server outcome: callers must retry the desired state or close the session; the helper does not promise that a failed response means the server made no change.
 
 Admins can use `listScopes()`, `rotateScopeToken(scopeId)`, and `deleteScope(scopeId)` for recovery. Rotation also retires executions and disables scoped credentials; deletion is permanent. Both agent and scope clients expose `taskPage(after?, limit?, options?)` for bounded history traversal.
 
@@ -22,7 +24,9 @@ Install the current prerelease from the `next` tag:
 npm install @october-dev/october-bus@next
 ```
 
-Run the native CLI without installing Go:
+The native CLI commands below require `0.1.0-next.14` to have been published. A development checkout with that version does not establish registry availability. Earlier `next` versions are SDK-only, and unqualified `npx` selects `latest`, not `next`.
+
+Once the CLI-enabled release is published, run it without installing Go:
 
 ```sh
 npx @october-dev/october-bus@0.1.0-next.14 demo

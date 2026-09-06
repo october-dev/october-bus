@@ -37,6 +37,8 @@ For Bus API responses using the envelope above, success status codes are route-s
 
 `/health`, `/health/live`, and `/health/ready` return the bare `health` and `liveness` objects without the `ok` and `result` envelope so generic probes can read them. They still set `Content-Type: application/json` and `Cache-Control: no-store`.
 
+The `health` object MAY include `features`, a unique array of feature identifiers. Absence means no features declared; clients MUST ignore unknown identifiers. `session-retirement` declares support for the complete idempotent `/v1/me/retire` contract below, including obligation release and rejection of retired authority. It does not authorize any request. Updated managed-session helpers require ready protocol `0.1` health with this feature **before** registration, without sending credentials to the health endpoint. This prevents an incompatible runtime from replacing an existing execution before cleanup incompatibility is discovered. Low-level clients may continue to use older runtimes' supported operations.
+
 ## Routes
 
 | Method | Route | Authority | Result |
@@ -137,6 +139,8 @@ All other successful `POST`, `GET`, `PATCH`, `PUT`, and `DELETE` routes return `
 `POST /v1/me/retire` takes `{}` and atomically sets the current lease to zero, marks the execution offline, releases reservations, and releases its task claims. The same token can repeat retirement, including after natural expiry, but cannot heartbeat or perform other protected operations. A replaced token cannot retire its successor. Offline heartbeats remain temporary presence updates and do not retire authority. Go and TypeScript sessions serialize lifecycle writes, attempt retirement on close/cancellation/startup-heartbeat failure, and reject state changes after close. Failed network cleanup falls back to lease expiry and is reported by the session.
 
 Protected writes MUST recheck current execution and lease, or scoped credential generation, grant and enabled state, within the transaction that commits the write. Scope-owner mutations also fence token rotation at this boundary. Authentication before dispatch alone is insufficient.
+
+Managed-session lifecycle writes and their local state commits are ordered together. A helper remembers a state change only after a successful heartbeat; scheduled heartbeats use the last confirmed state. A transport failure can hide a committed server write, so callers must explicitly retry their desired state or retire rather than interpreting the error as a server rollback. Readiness does not gate explicit inbox pulls, and no state transition implicitly consumes or discards a delivery batch.
 
 Admin scope listing returns `scopeInfo[]`, allowing recovery when a scope-creation response was lost. Token rotation takes `{}`, returns `createScopeResult`, and retires all existing executions and disables all scoped credentials in that scope in one transaction. Re-register executions and rotate/re-enable only reviewed scoped principals. A lost rotation response can be recovered by rotating again; this issues another token, not the lost secret. Deletion requires `deleteScopeInput` with the exact path ID in `confirmScopeId`; it permanently removes the scope and dependent records. A repeated deletion succeeds with `deleted=false`. Back up before deleting.
 

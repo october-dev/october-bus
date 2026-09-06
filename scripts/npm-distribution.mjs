@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { integrity, sourceIdentity, validateArtifact } from './artifact-integrity.mjs'
 
 const require = createRequire(import.meta.url)
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -30,15 +31,34 @@ export function tarball(name) {
 }
 
 export function validateDistribution() {
-  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
+  const part = '(?:0|[1-9][0-9]*)'
+  const pre = '(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+  assert.match(manifest.version, new RegExp(`^${part}\\.${part}\\.${part}(?:-${pre}(?:\\.${pre})*)?$`))
   assert.equal(manifest.bin['october-bus'], 'cli/october-bus.cjs')
+  const lock = JSON.parse(readFileSync(join(sdk, 'package-lock.json'), 'utf8'))
+  assert.equal(lock.version, manifest.version, 'Update the source lockfile version')
+  assert.equal(lock.packages[''].version, manifest.version, 'Update the root lockfile package version')
 }
 
 export function distributionManifest() {
-  return { ...manifest, optionalDependencies: Object.fromEntries(targets.map(target => [packageFor(target).name, manifest.version])) }
+  const { scripts, devDependencies, ...published } = manifest
+  return { ...published, optionalDependencies: Object.fromEntries(targets.map(target => [packageFor(target).name, manifest.version])) }
 }
 
-function build(target) {
+export function requiredPath(name) {
+  if (name === manifest.name) return manifest.bin['october-bus']
+  const platform = targets.map(packageFor).find(platform => platform.name === name)
+  assert.ok(platform, `Unexpected distribution package: ${name}`)
+  return `bin/${platform.binary}`
+}
+
+export function readArtifact(name, source = sourceIdentity(root)) {
+  return validateArtifact(JSON.parse(readFileSync(`${tarball(name)}.json`, 'utf8')), {
+    name, version: manifest.version, requiredPath: requiredPath(name), source
+  }, tarball(name))
+}
+
+function build(target, source) {
   const platform = packageFor(target)
   const directory = join(artifacts, target)
   mkdirSync(join(directory, 'bin'), { recursive: true })
@@ -51,7 +71,8 @@ function build(target) {
     name: platform.name, version: manifest.version, description: `October Bus native Go binary for ${target}.`,
     license: manifest.license, os: [platform.os], cpu: [platform.cpu],
     repository: manifest.repository, homepage: manifest.homepage,
-    files: ['bin', 'LICENSE', 'README.md'], publishConfig: manifest.publishConfig
+    files: ['bin', 'LICENSE', 'README.md'], publishConfig: manifest.publishConfig,
+    octoberBusBuild: { source, binaryIntegrity: integrity(binary) }
   }
   writeFileSync(join(directory, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`)
   copyFileSync(join(root, 'LICENSE'), join(directory, 'LICENSE'))
@@ -59,9 +80,28 @@ function build(target) {
   console.log(`Built ${platform.name}@${manifest.version}`)
 }
 
-function pack(directory, expectedBinary) {
+function pack(directory, name, source) {
+  const pkg = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+  assert.equal(pkg.name, name)
+  assert.equal(pkg.version, manifest.version, 'Stale native package version; rebuild first')
+  const expectedBinary = requiredPath(name)
+  if (name === manifest.name) {
+    assert.deepEqual(pkg.optionalDependencies, distributionManifest().optionalDependencies)
+    assert.deepEqual(pkg.bin, manifest.bin)
+    assert.equal(pkg.scripts, undefined, 'Published packages must not run lifecycle scripts')
+  } else {
+    const platform = targets.map(packageFor).find(platform => platform.name === name)
+    assert.deepEqual(pkg.os, [platform.os])
+    assert.deepEqual(pkg.cpu, [platform.cpu])
+    assert.deepEqual(pkg.octoberBusBuild, { source, binaryIntegrity: integrity(join(directory, expectedBinary)) }, 'Stale or changed native binary; rebuild before packing')
+  }
   const [result] = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--pack-destination', artifacts], { cwd: directory }))
+  assert.equal(result.name, name)
+  assert.equal(result.version, manifest.version)
   assert.ok(result.files.some(file => file.path === expectedBinary), `Packed binary/launcher missing: ${expectedBinary}`)
+  const record = { schemaVersion: 1, name, version: manifest.version, requiredPath: expectedBinary, source, integrity: integrity(tarball(name)) }
+  assert.equal(result.integrity, record.integrity)
+  writeFileSync(`${tarball(name)}.json`, `${JSON.stringify(record, null, 2)}\n`)
   console.log(`Packed ${result.filename}`)
 }
 
@@ -70,21 +110,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [command, selection = `${process.platform}-${process.arch}`, ...extra] = process.argv.slice(2)
   assert.ok(['build', 'pack'].includes(command) && extra.length === 0, 'Expected build|pack [--all|os-arch]')
   const selected = selection === '--all' ? targets : [packageFor(selection).target]
+  const source = sourceIdentity(root)
   mkdirSync(artifacts, { recursive: true })
   for (const target of selected) {
-    if (command === 'build') build(target)
-    else pack(join(artifacts, target), `bin/${packageFor(target).binary}`)
+    if (command === 'build') build(target, source)
+    else pack(join(artifacts, target), packageFor(target).name, source)
   }
   if (command === 'pack') {
-    npm(['run', 'build'], { cwd: sdk, stdio: 'inherit' })
     // Generate release-only dependencies here. Source npm ci must also work
     // before these exact-version platform packages have been published.
-    const stagedSDK = join(artifacts, 'sdk')
-    mkdirSync(stagedSDK, { recursive: true })
-    for (const path of ['cli', 'dist', 'src', 'LICENSE', 'README.md']) {
-      cpSync(join(sdk, path), join(stagedSDK, path), { recursive: true })
+    const stagedSDK = mkdtempSync(join(artifacts, 'sdk-'))
+    try {
+      npm(['run', 'build', '--', '--outDir', join(stagedSDK, 'dist'), '--sourceRoot', '../src'], { cwd: sdk, stdio: 'inherit' })
+      for (const path of ['cli', 'src', 'LICENSE', 'README.md']) {
+        cpSync(join(sdk, path), join(stagedSDK, path), { recursive: true })
+      }
+      writeFileSync(join(stagedSDK, 'package.json'), `${JSON.stringify(distributionManifest(), null, 2)}\n`)
+      pack(stagedSDK, manifest.name, source)
+    } finally {
+      rmSync(stagedSDK, { recursive: true })
     }
-    writeFileSync(join(stagedSDK, 'package.json'), `${JSON.stringify(distributionManifest(), null, 2)}\n`)
-    pack(stagedSDK, manifest.bin['october-bus'])
   }
+  assert.deepEqual(sourceIdentity(root), source, 'Source changed during build/pack; repeat before publishing')
 }

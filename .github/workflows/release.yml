@@ -42,6 +42,8 @@ jobs:
         working-directory: sdk/typescript
       - run: npm run test:errors
         working-directory: sdk/typescript
+      - run: npm run test:release
+        working-directory: sdk/typescript
       - run: go build -o /tmp/october-bus ./cmd/october-bus
       - run: npm run test:integration
         working-directory: sdk/typescript

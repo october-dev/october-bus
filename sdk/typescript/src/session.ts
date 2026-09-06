@@ -1,4 +1,5 @@
-import { OctoberBusClient, OctoberBusScopeClient } from './client.js'
+import { OctoberBusAdminClient, OctoberBusClient, OctoberBusScopeClient } from './client.js'
+import { BusError } from './errors.js'
 import type {
   Agent,
   AgentLifecycle,
@@ -83,6 +84,14 @@ export class OctoberBusAgentSession {
       throw new Error('heartbeatIntervalMs must be shorter than the execution lease')
     }
     if (lifecycle === 'offline' && ready) throw new Error('offline agents cannot be ready')
+    const health = await new OctoberBusAdminClient(options.address, '').health(
+      options.signal === undefined ? {} : { signal: options.signal }
+    )
+    if (health.name !== 'october-bus' || health.protocolVersion !== '0.1' ||
+        health.status !== 'ready' || !Array.isArray(health.features) || !health.features.includes('session-retirement')) {
+      throw new BusError('CONFLICT', 'Managed sessions require a ready protocol 0.1 runtime advertising session-retirement; upgrade the daemon before registering')
+    }
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error('Operation aborted')
     const scope = new OctoberBusScopeClient(options.address, options.scopeToken)
     // Do not abort registration halfway through an ambiguous committed response.
     // Once its result arrives, cancellation retires the returned execution.
@@ -105,8 +114,6 @@ export class OctoberBusAgentSession {
   async setState(lifecycle: AgentLifecycle, ready: boolean): Promise<Agent> {
     if (this.closed) throw new Error('agent session is closed')
     if (lifecycle === 'offline' && ready) throw new Error('offline agents cannot be ready')
-    this.lifecycle = lifecycle
-    this.ready = ready
     return this.enqueueHeartbeat(lifecycle, ready)
   }
 
@@ -129,10 +136,18 @@ export class OctoberBusAgentSession {
     return this.closePromise
   }
 
-  private enqueueHeartbeat(lifecycle: AgentLifecycle, ready: boolean): Promise<Agent> {
-    const operation = this.lifecycleQueue.then(() =>
-      this.client.heartbeat(lifecycle, ready, this.leaseMs, { signal: this.lifecycleAbort.signal })
-    )
+  private enqueueHeartbeat(lifecycle?: AgentLifecycle, ready?: boolean): Promise<Agent> {
+    const operation = this.lifecycleQueue.then(async () => {
+      if (this.closed) throw new Error('agent session is closed')
+      // Background heartbeats read the last confirmed state when their queued
+      // turn begins, not while an earlier state write is still in flight.
+      const nextLifecycle = lifecycle ?? this.lifecycle
+      const nextReady = ready ?? this.ready
+      const agent = await this.client.heartbeat(nextLifecycle, nextReady, this.leaseMs, { signal: this.lifecycleAbort.signal })
+      this.lifecycle = nextLifecycle
+      this.ready = nextReady
+      return agent
+    })
     // Keep the queue drainable after a failed write so cleanup is never skipped.
     this.lifecycleQueue = operation.then(() => undefined, () => undefined)
     return operation
@@ -141,7 +156,7 @@ export class OctoberBusAgentSession {
   private scheduleHeartbeat(): void {
     if (this.closed) return
     this.timer = setTimeout(() => {
-      void this.enqueueHeartbeat(this.lifecycle, this.ready).then(
+      void this.enqueueHeartbeat().then(
         () => this.scheduleHeartbeat(),
         (error: unknown) => {
           // Close intentionally aborts an in-flight heartbeat; that is not a

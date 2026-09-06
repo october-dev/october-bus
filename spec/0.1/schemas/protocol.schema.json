@@ -63,6 +63,7 @@
         "name": { "const": "october-bus" },
         "protocolVersion": { "const": "0.1" },
         "runtimeVersion": { "type": "string", "minLength": 1 },
+        "features": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "status": { "enum": ["ready", "not_ready"] },
         "startedAt": { "$ref": "#/$defs/instant" },
         "storage": { "$ref": "#/$defs/storageHealth" }

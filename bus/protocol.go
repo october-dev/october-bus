@@ -445,7 +445,11 @@ type Health struct {
 	Status          string        `json:"status"`
 	StartedAt       string        `json:"startedAt"`
 	Storage         StorageHealth `json:"storage"`
+	Features        []string      `json:"features,omitempty"`
 }
+
+// FeatureSessionRetirement includes idempotent retirement and obligation release.
+const FeatureSessionRetirement = "session-retirement"
 
 const (
 	StorageAvailable   = "available"

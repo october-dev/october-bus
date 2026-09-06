@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { distributionManifest, manifest, packageFor, platformPackage, tarball, targets, validateDistribution } from './npm-distribution.mjs'
+import { distributionManifest, manifest, packageFor, platformPackage, readArtifact, root as repositoryRoot, tarball, targets, validateDistribution } from './npm-distribution.mjs'
 
 validateDistribution()
 assert.ok(process.env.npm_execpath, 'Use npm run test:distribution')
 const host = platformPackage()
+// Cross-OS release smoke jobs share a commit and build record, but checkout
+// line endings may differ. The publisher additionally checks the source digest.
+const source = JSON.parse(readFileSync(`${tarball(manifest.name)}.json`, 'utf8')).source
+assert.equal(source.commit, execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim())
+assert.match(source.sourceDigest, /^sha256:[a-f0-9]{64}$/)
+readArtifact(manifest.name, source)
+readArtifact(host.name, source)
 const root = mkdtempSync(join(tmpdir(), 'october-npm-install-'))
 const downloaded = []
 const archives = new Map([
@@ -59,6 +66,10 @@ try {
   await runNpm(['install', `${manifest.name}@${manifest.version}`, '--ignore-scripts', '--no-audit', '--no-fund'])
   const installed = JSON.parse(readFileSync(join(root, 'node_modules/@october-dev/october-bus/package.json'), 'utf8'))
   assert.deepEqual(installed.optionalDependencies, distributionManifest().optionalDependencies)
+  assert.equal(installed.scripts, undefined)
+  const mapPath = join(root, 'node_modules/@october-dev/october-bus/dist/client.js.map')
+  const sourceMap = JSON.parse(readFileSync(mapPath, 'utf8'))
+  assert.equal(resolve(dirname(mapPath), sourceMap.sourceRoot, sourceMap.sources[0]), join(root, 'node_modules/@october-dev/october-bus/src/client.ts'), 'Source maps must refer to the packaged source, not a temporary build directory')
   assert.deepEqual([...new Set(downloaded)].sort(), [manifest.name, host.name].sort())
   assert.deepEqual(readdirSync(join(root, 'node_modules/@october-dev')).sort(), ['october-bus', `october-bus-${host.target}`].sort())
   const version = await runNpm(['exec', '--offline', '--', 'october-bus', 'version'])

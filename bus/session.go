@@ -3,6 +3,7 @@ package bus
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -65,6 +66,16 @@ func StartAgentSession(ctx context.Context, options AgentSessionOptions) (*Agent
 	registrationInput := options.Registration
 	registrationInput.LeaseMS = leaseMS
 	scopeClient := Client{Address: options.Address, Token: options.ScopeToken, HTTP: options.HTTP}
+	// Check before registration: an incompatible daemon must not replace an
+	// existing execution and then fail only when the new session is closed.
+	health, err := scopeClient.Health(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if health.Name != "october-bus" || health.ProtocolVersion != ProtocolVersion ||
+		health.Status != "ready" || !slices.Contains(health.Features, FeatureSessionRetirement) {
+		return nil, Errorf(CodeConflict, "managed sessions require a ready protocol 0.1 runtime advertising session-retirement; upgrade the daemon before registering")
+	}
 	registration, err := scopeClient.RegisterAgent(ctx, registrationInput)
 	if err != nil {
 		return nil, err
@@ -159,13 +170,18 @@ func (s *AgentSession) SetState(ctx context.Context, lifecycle AgentLifecycle, r
 		s.stateMu.Unlock()
 		return Agent{}, Errorf(CodeConflict, "Agent session is closed")
 	}
-	s.lifecycle, s.ready = lifecycle, ready
 	s.stateMu.Unlock()
 	operationContext, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(s.context, cancel)
 	defer stop()
 	defer cancel()
-	return s.Client.Heartbeat(operationContext, HeartbeatInput{Lifecycle: lifecycle, Ready: ready, LeaseMS: s.leaseMS})
+	agent, err := s.Client.Heartbeat(operationContext, HeartbeatInput{Lifecycle: lifecycle, Ready: ready, LeaseMS: s.leaseMS})
+	if err == nil {
+		s.stateMu.Lock()
+		s.lifecycle, s.ready = lifecycle, ready
+		s.stateMu.Unlock()
+	}
+	return agent, err
 }
 
 // Done closes after heartbeat termination and the bounded retirement attempt.
