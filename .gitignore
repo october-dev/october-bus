@@ -1,4 +1,6 @@
 /_audit/
+# Local planning and working notes.
+/_internal/
 node_modules/
 dist/
 bin/
