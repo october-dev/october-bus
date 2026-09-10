@@ -24,6 +24,9 @@ type MCPAdapterOptions struct {
 	Command     string
 	Args        []string
 	Environment []string
+	// LocalPaths opts into the reference CLI's self-registration check. Use only
+	// an isolated daemon whose private data/discovery directories belong to this run.
+	LocalPaths *bus.DaemonPaths
 }
 
 type adapterConnection struct {
@@ -717,6 +720,79 @@ func RunMCPAdapter(ctx context.Context, options MCPAdapterOptions) (result Resul
 	}); err != nil {
 		return result, err
 	}
+	if options.LocalPaths != nil {
+		if err := record.check("self-registering-stdio-lifecycle", func() error {
+			return checkSelfRegistration(ctx, options, scope, owner, controller)
+		}); err != nil {
+			return result, err
+		}
+	}
 
 	return result, nil
+}
+
+func checkSelfRegistration(ctx context.Context, options MCPAdapterOptions, scope bus.CreateScopeResult, owner, controller bus.Client) error {
+	paths := options.LocalPaths
+	if err := bus.SaveScopeToken(paths.DataDir, scope.ScopeID, scope.ScopeToken); err != nil {
+		return err
+	}
+	defer bus.RemoveScopeToken(paths.DataDir, scope.ScopeID)
+	args := append(append([]string{}, options.Args...), "--scope", scope.ScopeID, "--agent", "stdio-owned", "--data-dir", paths.DataDir, "--runtime-dir", paths.RuntimeDir)
+	command := exec.CommandContext(ctx, options.Command, args...)
+	command.Env = removeEnvironment(os.Environ(), "HOME", "USERPROFILE", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "OCTOBER_BUS_DATA_DIR", "OCTOBER_BUS_RUNTIME_DIR", "OCTOBER_BUS_ADDRESS", "OCTOBER_BUS_ADMIN_TOKEN", "OCTOBER_BUS_SCOPE_TOKEN", "OCTOBER_BUS_AGENT_TOKEN", "OCTOBER_BUS_AGENT_ID", "OCTOBER_BUS_EXECUTION_ID")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	client := mcp.NewClient(&mcp.Implementation{Name: "self-registering-conformance", Version: bus.Version}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
+	if err != nil {
+		return fmt.Errorf("self-registering bridge did not start: %w", err)
+	}
+	defer session.Close()
+	if err := owner.LinkAgents(ctx, "controller", "stdio-owned"); err != nil {
+		return err
+	}
+	receipt, err := controller.SendMessage(ctx, bus.SendMessageInput{To: "stdio-owned", Body: "self-registering request", Mode: bus.MessageRequest})
+	if err != nil {
+		return err
+	}
+	inbox, err := callTool[struct {
+		Messages []bus.Message `json:"messages"`
+	}](ctx, session, "check_inbox", map[string]any{"waitMs": 0})
+	if err != nil || len(inbox.Messages) != 1 || inbox.Messages[0].ID != receipt.MessageID {
+		return fmt.Errorf("self-registering delivery mismatch: %v", err)
+	}
+	encoded, _ := json.Marshal([]string{receipt.MessageID})
+	if _, err := callTool[map[string]int64](ctx, session, "acknowledge_messages", map[string]any{"messageIds": string(encoded)}); err != nil {
+		return err
+	}
+	response, err := callTool[bus.DeliveryReceipt](ctx, session, "message_peer", map[string]any{"peer": "controller", "message": "self-registering reply", "mode": "response", "responseTo": receipt.MessageID})
+	if err != nil {
+		return err
+	}
+	linked, err := callTool[bus.DeliveryReceipt](ctx, session, "message_receipt", map[string]any{"messageId": receipt.MessageID})
+	if err != nil || linked.ResponseMessageID != response.MessageID {
+		return fmt.Errorf("self-registering receipt mismatch: %v", err)
+	}
+	task, err := callTool[bus.Task](ctx, session, "add_task", map[string]any{"title": "Retirement releases this claim"})
+	if err != nil {
+		return err
+	}
+	if _, err := callTool[bus.Task](ctx, session, "claim_task", map[string]any{"taskId": task.ID}); err != nil {
+		return err
+	}
+	if err := session.Close(); err != nil {
+		return err
+	}
+	agents, err := owner.ListAgents(ctx)
+	if err != nil {
+		return err
+	}
+	agent, err := findAgent(agents, "stdio-owned")
+	if err != nil || agent.Reachable || agent.Lifecycle != bus.LifecycleOffline {
+		return fmt.Errorf("stdio EOF did not retire the execution: %v", err)
+	}
+	if _, err := controller.ClaimTask(ctx, task.ID); err != nil {
+		return fmt.Errorf("stdio EOF did not release the claim: %w", err)
+	}
+	return checkNoCredentials([]*bytes.Buffer{&stderr}, scope.ScopeToken, options.AdminToken)
 }

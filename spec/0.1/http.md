@@ -54,6 +54,7 @@ The `health` object MAY include `features`, a unique array of feature identifier
 | `GET` | `/v1/agents` | Scope | Array of `agent` objects |
 | `POST` | `/v1/links` | Scope | `{"linked": true}` (idempotent) |
 | `PATCH` | `/v1/me/heartbeat` | Agent | Renewed presence |
+| `GET` | `/v1/me` | Current agent execution | `nodeStatus`: execution identity, lease and agent state |
 | `GET` | `/v1/peers` | Agent | Linked peers |
 | `POST` | `/v1/messages` | Agent | Durable delivery receipt |
 | `GET` | `/v1/messages/{messageId}` | Sender or recipient | Delivery receipt |

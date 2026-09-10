@@ -1,5 +1,13 @@
 # Launch preparation and deferred validation
 
+## Harness launch implementation (2026-09-10)
+
+The subsequent harness-launch pass implements configuration-only bootstrap, private local scope credentials and mutation locking, explicit peer linking, 15 MCP tools including receipts, structured-argument coercion, cancellation recovery, generated host configurations and doctor probes. It includes 26 MCP host candidates, a native Pi extension and a cached-credential launcher for October Harness's existing native integration, all experimental. Stable candidate publication and original-artifact promotion are separate lanes; launch-core evidence and independent release review remain gates. See [adapter setup](../adapters/README.md), [integration boundaries](harness-boundaries.md) and [releases](releases.md).
+
+The combined validation command below now includes native-extension hook tests and real Go-bridge/SDK integration. Named hosts, cloud accounts, all six architecture executions, eight-hour retained-data soak and user-pilot evidence must still be supplied. No support status or external publication is inferred from implementation. The following section is the historical ten-item preparation record, not a report of the current checkout's test results.
+
+## Earlier ten-item preparation record
+
 This pass implements ten bounded improvements without installing harnesses, publishing packages, changing repository permissions, or running a full runtime test suite. Regression tests and rehearsal tooling are prepared, **not evidence that the candidate passed them**. The original PR #109 revision `33659f7` passed CI; the follow-up needs a new combined run.
 
 Static checks performed in this preparation pass: Go vet and formatting, TypeScript `--noEmit` typecheck, JavaScript syntax, JSON/YAML parsing, patch whitespace, and a dry run of the combined validation plan. No Go/Node regression tests, binary builds, installation smoke tests, or migration rehearsal were executed for these changes.

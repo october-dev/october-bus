@@ -41,6 +41,8 @@ The runtime and data directories request owner-only permissions where the operat
 
 Do not place scope or admin credentials in model context. Give a harness only its execution-bound agent token when possible.
 
+Configuration-only adapters keep both scope and execution tokens inside the Go bridge. Their protected local scope-token files are sensitive credentials, including after daemon shutdown. Creation/import/rotation/deletion through the local CLI maintain that cache; remote API operations do not. Hashing scope IDs makes portable filenames, not encryption. Unix modes are enforced on reads, but Windows deployments must check owner-only ACLs separately. Neither mode protects against a malicious process running as the same OS user.
+
 Portable archives exclude reusable credentials and execution authority. They still contain collaboration content such as messages, context, tasks, escalation answers, and output values. Store and transfer them as sensitive project data.
 
 ## Untrusted content
@@ -53,4 +55,4 @@ Loopback authentication is not a remote security design. Cross-machine and hoste
 
 ## Logging and retention
 
-The daemon currently logs startup information, not credentials or message content. Durable state remains in the local database after acknowledgement. Explicit retention, export, and deletion tools are required before stable release.
+The daemon logs startup information, not credentials or message content. Durable state remains in the local database after acknowledgement. Retention, portable export/import, backup and explicit deletion are available; operators still need an approved retention and recovery policy. See [operations](operations.md).

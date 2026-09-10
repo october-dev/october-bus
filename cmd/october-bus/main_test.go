@@ -23,7 +23,13 @@ func TestMCPStdioHelper(t *testing.T) {
 	if os.Getenv("OCTOBER_BUS_MCP_STDIO_TEST_HELPER") != "1" {
 		return
 	}
-	if err := runMCPStdio(context.Background()); err != nil {
+	var args []string
+	if raw := os.Getenv("OCTOBER_BUS_MCP_STDIO_TEST_ARGS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			os.Exit(2)
+		}
+	}
+	if err := runMCPStdio(context.Background(), args...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -73,7 +79,7 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 	defer session.Close()
 
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 14 {
+	if err != nil || len(tools.Tools) != 15 {
 		t.Fatalf("unexpected forwarded tools: %d, %v; stderr: %s", len(tools.Tools), err, stderr.String())
 	}
 	directClient := mcp.NewClient(&mcp.Implementation{Name: "direct-test", Version: "1"}, nil)
@@ -102,19 +108,13 @@ func TestMCPStdioBridgeForwardsDaemonTools(t *testing.T) {
 	callMCPBridgeTool(t, ctx, session, "ask_user", map[string]any{"question": "Continue?"})
 }
 
-func TestMCPStdioBridgeStartsWithoutRuntimeIdentity(t *testing.T) {
+func TestMCPStdioBridgeRejectsMissingRuntimeIdentity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	session, stderr := connectMCPBridge(t, ctx, "http://127.0.0.1:1", "")
-	initial := session.InitializeResult()
-	require(t, initial != nil && strings.Contains(initial.Instructions, "not running inside a managed agent execution"), "unexpected bridge instructions: %#v", initial)
-	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 0 {
-		t.Fatalf("unexpected tools without identity: %#v, %v; stderr: %s", tools, err, stderr.String())
-	}
-	if err := session.Close(); err != nil {
-		t.Fatalf("stdio bridge did not stop cleanly when input closed: %v", err)
-	}
+	stderr := new(bytes.Buffer)
+	client := mcp.NewClient(&mcp.Implementation{Name: "bridge-test", Version: "1"}, nil)
+	_, err := client.Connect(ctx, &mcp.CommandTransport{Command: mcpBridgeCommand("", "", stderr)}, nil)
+	require(t, err != nil && strings.Contains(stderr.String(), "requires managed agent credentials"), "missing identity must fail clearly: %v, %s", err, stderr.String())
 }
 
 func TestMCPStdioBridgeRejectsUnavailableDaemon(t *testing.T) {

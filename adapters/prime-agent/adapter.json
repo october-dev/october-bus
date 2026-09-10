@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "prime-agent-mcp",
+  "adapterVersion": "0.2.0",
+  "harnessFamily": "Prime Agent",
+  "status": "experimental",
+  "protocolVersions": [
+    "0.1"
+  ],
+  "transport": "mcp",
+  "delivery": "pull",
+  "lifecycleEvidence": "process",
+  "capabilities": [
+    "discovery",
+    "messaging",
+    "requests",
+    "tasks",
+    "escalation",
+    "bounded-context"
+  ],
+  "testedVersions": [],
+  "platforms": [],
+  "maintainer": "October",
+  "repository": "https://github.com/october-dev/october-bus",
+  "limitations": [
+    "Experimental configuration, not named-harness certification.",
+    "Generic MCP is called through the kernel's pre-imported Python mcp module, not ordinary model tools. Use await mcp.list_tools(\"october_bus\") and await mcp.call_tool(\"october_bus\", name, arguments). Only user settings execute MCP; project settings are ignored. Discovery is lazy: make an initial call before linking peers. Each kernel owns its connection; test await mcp.reload(), cancellation and kernel shutdown. Concurrent sessions using one user entry need distinct agent IDs/configurations; identical IDs replace earlier executions."
+  ],
+  "conformanceCommand": "october-bus-conformance --profile mcp-adapter --start-runtime --adapter-command october-bus --adapter-arg mcp --adapter-arg stdio --check-self-registration",
+  "configuration": {
+    "file": "mcp.json.example",
+    "format": "json",
+    "location": "~/.prime/agent/settings.json",
+    "executable": "prime-agent",
+    "docs": "https://github.com/PrimeIntellect-ai/prime-agent/blob/main/packages/coding-agent/docs/mcp-integrations.md",
+    "recommendedWaitMs": 10000
+  }
+}

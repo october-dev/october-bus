@@ -59,7 +59,19 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "conformanceCommand": { "type": "string", "minLength": 1 }
+    "conformanceCommand": { "type": "string", "minLength": 1 },
+    "configuration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["file", "format", "location", "docs", "recommendedWaitMs"],
+      "properties": {
+        "file": { "type": "string", "pattern": "^[a-zA-Z0-9._-]+\\.example$" },
+        "format": { "enum": ["json", "toml", "yaml"] },
+        "location": { "type": "string", "minLength": 1 },
+        "executable": { "type": "string", "minLength": 1 },
+        "docs": { "type": "string", "format": "uri" },
+        "recommendedWaitMs": { "type": "integer", "minimum": 0, "maximum": 25000 }
+      }
+    }
   },
   "allOf": [
     {

@@ -1,0 +1,23 @@
+{
+  "mcp": {
+    "october_bus": {
+      "type": "local",
+      "command": [
+        "{{command}}",
+        "mcp",
+        "stdio",
+        "--scope",
+        "{{scope}}",
+        "--agent",
+        "{{agent}}",
+        "--name",
+        "{{name}}",
+        "--data-dir",
+        "{{dataDir}}",
+        "--runtime-dir",
+        "{{runtimeDir}}"
+      ],
+      "enabled": true
+    }
+  }
+}

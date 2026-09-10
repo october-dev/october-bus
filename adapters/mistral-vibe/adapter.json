@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "mistral-vibe-mcp",
+  "adapterVersion": "0.2.0",
+  "harnessFamily": "Mistral Vibe",
+  "status": "experimental",
+  "protocolVersions": [
+    "0.1"
+  ],
+  "transport": "mcp",
+  "delivery": "pull",
+  "lifecycleEvidence": "process",
+  "capabilities": [
+    "discovery",
+    "messaging",
+    "requests",
+    "tasks",
+    "escalation",
+    "bounded-context"
+  ],
+  "testedVersions": [],
+  "platforms": [],
+  "maintainer": "October",
+  "repository": "https://github.com/october-dev/october-bus",
+  "limitations": [
+    "Configuration reviewed against upstream documentation; this adapter revision has no named-harness certification",
+    "Pull-only: queued work does not start a model turn",
+    "One MCP configuration is one execution; duplicate agent IDs replace earlier executions"
+  ],
+  "conformanceCommand": "october-bus-conformance --profile mcp-adapter --start-runtime --adapter-command october-bus --adapter-arg mcp --adapter-arg stdio --check-self-registration",
+  "configuration": {
+    "file": "config.toml.example",
+    "format": "toml",
+    "location": ".vibe/config.toml",
+    "executable": "vibe",
+    "docs": "https://github.com/mistralai/mistral-vibe",
+    "recommendedWaitMs": 1000
+  }
+}

@@ -13,15 +13,15 @@ import (
 	"github.com/october-dev/october-bus/bus"
 )
 
-func TestCodexAdapterForwardsOnlyExecutionCredentials(t *testing.T) {
+func TestCodexAdapterUsesTokenFreeSelfRegistration(t *testing.T) {
 	configuration, err := os.ReadFile(filepath.Join("..", "adapters", "codex", "config.toml.example"))
 	requireNoError(t, err)
 	text := string(configuration)
-	if !strings.Contains(text, `env_vars = ["OCTOBER_BUS_ADDRESS", "OCTOBER_BUS_AGENT_TOKEN"]`) {
-		t.Fatal("Codex adapter must forward the Bus address and execution token")
+	if !strings.Contains(text, `"--scope"`) || !strings.Contains(text, `"--agent"`) {
+		t.Fatal("Codex adapter must explicitly select the local scope and execution identity")
 	}
-	if strings.Contains(text, "OCTOBER_BUS_SCOPE_TOKEN") || strings.Contains(text, "OCTOBER_BUS_ADMIN_TOKEN") {
-		t.Fatal("Codex adapter must not forward scope or admin credentials")
+	if strings.Contains(text, "TOKEN") || strings.Contains(text, "env_vars") {
+		t.Fatal("self-registering Codex config must not forward any Bus credential")
 	}
 }
 
@@ -361,6 +361,9 @@ func TestReferenceRuntimeResponsesMatchProtocolSchemas(t *testing.T) {
 	requireValid(t, resolvedSchema(t, path, "taskPage"), jsonValue(t, page))
 	plannerRegistration, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "planner", DisplayName: "Planner"})
 	requireNoError(t, err)
+	status, err := (bus.Client{Address: address, Token: plannerRegistration.AgentToken}).NodeStatus(ctx)
+	requireNoError(t, err)
+	requireValid(t, resolvedSchema(t, path, "nodeStatus"), jsonValue(t, status))
 	reviewerRegistration, err := owner.RegisterAgent(ctx, bus.RegisterAgentInput{ID: "reviewer", DisplayName: "Reviewer", ConnectTo: []string{"planner"}})
 	requireNoError(t, err)
 	requireValid(t, resolvedSchema(t, path, "registerAgentResult"), jsonValue(t, reviewerRegistration))

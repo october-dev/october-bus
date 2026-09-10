@@ -1,22 +1,20 @@
 # Cursor adapter
 
-Status: experimental, not yet conformance-verified. A contributor reports completing RUNBOOK steps 1–13 with Cursor 3.18.9 headless via `cursor-agent -p` and October Bus `v0.1.0-rc.4` on macOS arm64. The [attempt notes](../../compatibility/observations/cursor-3.18.9-macos-arm64.md) preserve the reported digest, but do not include a public run log. Independent compatibility review is still required; other versions and platforms remain unverified.
+Status: experimental, adapter 0.2.0. Configuration reviewed on 2026-09-10; no named-harness versions or platforms certified for this revision. Refs [#33](https://github.com/october-dev/october-bus/issues/33).
 
-Start October Bus, then create a scope. Copy or merge the example into `.cursor/mcp.json` in the project where Cursor will run. It launches the stdio bridge inside the managed agent execution.
+The [earlier CLI observation](../../compatibility/observations/cursor-3.18.9-macos-arm64.md) is not editor or current-candidate certification.
 
-Run Cursor through the managed agent command:
+Follow [shared setup](../README.md), then print a personalized snippet:
 
 ```sh
-export OCTOBER_BUS_SCOPE_TOKEN="<scope token>"
-
-october-bus agent run \
-  --id cursor \
-  --name Cursor \
-  --connect-to codex \
-  --capability coding \
-  -- cursor-agent --approve-mcps
+october-bus harness config cursor --scope my-project --agent cursor-reviewer --name "Cursor Reviewer"
+october-bus doctor --harness cursor --scope my-project
 ```
 
-The wrapper gives Cursor only its execution-scoped agent token. It owns heartbeat and marks the execution offline when Cursor exits. It does not infer model readiness from the process alone.
+Configuration location: `.cursor/mcp.json`. The [template](mcp.json.example) contains placeholders; use the generator, not the template verbatim. The generator never edits existing configuration or stores credentials in it. Review and merge just the October Bus entry. Retain the host's own tool approvals and workspace trust controls.
 
-Cursor may ask the user to approve the MCP server or individual tools. Review those prompts according to the agent's permissions and scope.
+Editor and cursor-agent CLI behavior require separate runbook evidence.
+
+Use `check_inbox` with `waitMs=1000` between work steps. The bridge registers and heartbeats outside the model loop, and attempts retirement when the host closes MCP. A hard kill relies on lease expiry. Each simultaneously connected window/project needs a distinct `--agent` ID; identical IDs deliberately replace the previous execution. Remove this server entry to disconnect, and verify retirement in the Bus before reassigning work.
+
+Before promotion, run the full [compatibility runbook](../../compatibility/RUNBOOK.md), both directions with an independent harness, denied-tool cases, reconnection/replacement, and exact-candidate evidence with model, launch mode and public sanitized artifacts. [Upstream configuration documentation](https://cursor.com/docs/mcp).

@@ -95,6 +95,7 @@ func (s *Server) newRouter() http.Handler {
 	registerRoute(router, "/v1/me/retire",
 		routeMethod{http.MethodPost, s.retireAgent},
 	)
+	registerRoute(router, "/v1/me", routeMethod{http.MethodGet, s.nodeStatus})
 	registerRoute(router, "/v1/peers",
 		routeMethod{http.MethodGet, s.listPeers},
 	)
@@ -441,6 +442,19 @@ func (s *Server) heartbeat(response http.ResponseWriter, request *http.Request) 
 		return err
 	}
 	result, err := s.runtime.Heartbeat(request.Context(), token, input)
+	if err != nil {
+		return err
+	}
+	writeResult(response, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) nodeStatus(response http.ResponseWriter, request *http.Request) error {
+	token, err := bearer(request)
+	if err != nil {
+		return err
+	}
+	result, err := s.runtime.NodeStatus(request.Context(), token)
 	if err != nil {
 		return err
 	}

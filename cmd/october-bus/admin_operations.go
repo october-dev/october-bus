@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/october-dev/october-bus/bus"
 )
 
 func scopeAdmin(operation string, args []string) error {
@@ -29,6 +31,13 @@ func scopeAdmin(operation string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if operation != "list" {
+		unlock, err := lockLocalScopeCredentials(client.Address)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var result any
@@ -46,7 +55,102 @@ func scopeAdmin(operation string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if operation == "rotate-token" {
+		credential := result.(bus.CreateScopeResult)
+		if err := updateLocalScopeCredential(client.Address, credential.ScopeID, credential.ScopeToken); err != nil {
+			return err
+		}
+	} else if operation == "delete" {
+		if err := updateLocalScopeCredential(client.Address, *id, ""); err != nil {
+			return err
+		}
+	}
 	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
+// Only cache credentials for the locally discovered daemon, never a remote URL.
+func lockLocalScopeCredentials(address string) (func(), error) {
+	paths, err := bus.DefaultDaemonPaths()
+	if err != nil {
+		return nil, err
+	}
+	run, err := bus.ReadRunFile(paths.RunFile)
+	if os.IsNotExist(err) || (err == nil && run.Address != address) {
+		return func() {}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot validate local discovery before credential mutation: %w", err)
+	}
+	lock, err := bus.LockScopeCredentials(paths.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.Close() }, nil
+}
+
+func updateLocalScopeCredential(address, scopeID, token string) error {
+	paths, err := bus.DefaultDaemonPaths()
+	if err != nil {
+		return err
+	}
+	run, err := bus.ReadRunFile(paths.RunFile)
+	if os.IsNotExist(err) || (err == nil && run.Address != address) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("scope changed but local discovery could not be validated; repair discovery and rotate again: %w", err)
+	}
+	if token == "" {
+		err = bus.RemoveScopeToken(paths.DataDir, scopeID)
+	} else {
+		err = bus.SaveScopeToken(paths.DataDir, scopeID, token)
+	}
+	if err != nil {
+		return fmt.Errorf("scope changed on the daemon but local credential update failed; repair the data directory before reconnecting: %w", err)
+	}
+	return nil
+}
+
+func localScopeClient(scopeID string) (bus.Client, error) {
+	paths, err := bus.DefaultDaemonPaths()
+	if err != nil {
+		return bus.Client{}, err
+	}
+	return localScopeClientAt(paths, scopeID)
+}
+
+func localScopeClientAt(paths bus.DaemonPaths, scopeID string) (bus.Client, error) {
+	run, err := bus.ReadRunFile(paths.RunFile)
+	if err != nil {
+		return bus.Client{}, fmt.Errorf("local daemon is unavailable; run october-bus start: %w", err)
+	}
+	token, err := bus.ReadScopeToken(paths.DataDir, scopeID)
+	if err != nil {
+		return bus.Client{}, err
+	}
+	return bus.Client{Address: run.Address, Token: token}, nil
+}
+
+func linkAgents(args []string) error {
+	flags := flag.NewFlagSet("link", flag.ContinueOnError)
+	scope := flags.String("scope", "", "local scope ID")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *scope == "" || flags.NArg() != 2 {
+		return errors.New("link requires --scope <scope-id> <agent-a> <agent-b>; start both agents first")
+	}
+	client, err := localScopeClient(*scope)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := client.LinkAgents(ctx, flags.Arg(0), flags.Arg(1)); err != nil {
+		return fmt.Errorf("could not link agents (both must be registered): %w", err)
+	}
+	fmt.Printf("Linked %s and %s in scope %s\n", flags.Arg(0), flags.Arg(1), *scope)
+	return nil
 }
 
 func backupDatabase(args []string) error {

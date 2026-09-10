@@ -6,7 +6,9 @@ The endpoint is `/mcp` and requires an execution-bound agent Bearer token. An MC
 
 A runtime MAY restrict `/mcp` by the request `Host`. A runtime that does so MUST default to accepting only loopback Hosts, and MUST require explicit operator configuration to accept any other Host.
 
-The reference CLI can forward this same MCP surface over stdio with `october-bus mcp stdio`. The bridge does not add authority or keep separate Bus state.
+The reference CLI forwards this MCP surface over stdio. With `october-bus mcp stdio --scope <id> --agent <id>`, the bridge reads a protected local scope token and owns registration, heartbeat and retirement. The argument-free `mcp stdio` form instead requires `OCTOBER_BUS_ADDRESS` and an execution-bound `OCTOBER_BUS_AGENT_TOKEN` supplied by a managed launcher. Mixing modes fails; missing identity fails rather than exposing an empty tool list. Neither mode stores separate coordination state.
+
+The stdio bridge repairs top-level stringified JSON only where the advertised schema explicitly requires an array or object and parsing yields that type. Invalid JSON, scalar values, string-permitting unions and ambiguous schemas remain unchanged. The daemon's direct HTTP/MCP APIs remain strict. This compatibility shim grants no additional authority and does not repair arbitrary model arguments.
 
 ## Required tools
 
@@ -16,6 +18,7 @@ The reference CLI can forward this same MCP surface over stdio with `october-bus
 | `message_peer` | Send a notification, request, or response |
 | `check_inbox` | Reserve and commit waiting messages |
 | `acknowledge_messages` | Acknowledge processed messages |
+| `message_receipt` | Inspect an authorized message's delivery state and linked response |
 | `add_task` | Create a shared task |
 | `claim_task` | Claim a dependency-ready task |
 | `release_task` | Release a task claimed by this execution |
@@ -30,6 +33,8 @@ The reference CLI can forward this same MCP surface over stdio with `october-bus
 `message_peer.peer` SHOULD be an exact agent ID. The reference MCP server also accepts a unique case-insensitive exact display name, using the addressing rules in the main specification.
 
 `check_inbox` accepts an optional `waitMs` value from 0 through 25000. It commits a short reservation and returns delivered messages. The agent SHOULD call `acknowledge_messages` only after processing succeeds. A host that cannot wake an idle agent MUST document that it is pull-only.
+
+Start with `waitMs: 10000` unless an adapter documents otherwise. A host's tool-call timeout must exceed the wait plus transport overhead. Discovery/startup timeout settings do not necessarily control execution timeouts. `message_receipt` accepts `messageId` and uses the same sender/recipient or scope-owner authorization as the HTTP receipt route; an unrelated agent cannot inspect it.
 
 Every tool returns an object as structured content. Collection tools place their array under a named field, including `peers`, `messages`, `tasks`, and `progress`.
 

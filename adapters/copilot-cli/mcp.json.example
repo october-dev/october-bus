@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "october_bus": {
+      "command": "{{command}}",
+      "args": [
+        "mcp",
+        "stdio",
+        "--scope",
+        "{{scope}}",
+        "--agent",
+        "{{agent}}",
+        "--name",
+        "{{name}}",
+        "--data-dir",
+        "{{dataDir}}",
+        "--runtime-dir",
+        "{{runtimeDir}}"
+      ],
+      "type": "local",
+      "tools": [
+        "list_peers",
+        "message_peer",
+        "message_receipt",
+        "check_inbox",
+        "acknowledge_messages",
+        "add_task",
+        "claim_task",
+        "release_task",
+        "complete_task",
+        "add_task_progress",
+        "list_task_progress",
+        "list_tasks",
+        "publish_output",
+        "ask_user",
+        "get_node_status"
+      ]
+    }
+  }
+}

@@ -1,21 +1,20 @@
 # OpenCode adapter
 
-Status: experimental, not yet conformance-verified. A contributor reports a RUNBOOK attempt with OpenCode 1.18.25 (`opencode run`) on macOS arm64 in which `acknowledge_messages` received `messageIds` as a JSON string rather than an array and failed. The [attempt notes](../../compatibility/observations/opencode-1.18.25-macos-arm64.md) describe the unresolved runtime-version and log provenance. The root cause has not been independently established or attributed to OpenCode. Compatibility review and a passing run are still required; other versions and platforms remain unverified.
+Status: experimental, adapter 0.2.0. Configuration reviewed on 2026-09-10; no named-harness versions or platforms certified for this revision. Refs [#34](https://github.com/october-dev/october-bus/issues/34).
 
-Start October Bus, then create a scope. Set `OPENCODE_CONFIG` to the example or merge its `mcp` entry into the project's OpenCode configuration. It launches the stdio bridge inside the managed agent execution.
+The [earlier observation](../../compatibility/observations/opencode-1.18.25-macos-arm64.md) reported a stringified messageIds array. The bridge now normalizes schema-declared structured arguments; the live host run still needs repeating.
 
-Run OpenCode through the managed agent command:
+Follow [shared setup](../README.md), then print a personalized snippet:
 
 ```sh
-export OCTOBER_BUS_SCOPE_TOKEN="<scope token>"
-export OPENCODE_CONFIG="adapters/opencode/opencode.json.example"
-
-october-bus agent run \
-  --id opencode \
-  --name OpenCode \
-  --connect-to codex \
-  --capability coding \
-  -- opencode
+october-bus harness config opencode --scope my-project --agent opencode-reviewer --name "OpenCode Reviewer"
+october-bus doctor --harness opencode --scope my-project
 ```
 
-The wrapper gives OpenCode only its execution-scoped agent token. It owns heartbeat and marks the execution offline when OpenCode exits. It does not infer model readiness from the process alone.
+Configuration location: `opencode.json`. The [template](opencode.json.example) contains placeholders; use the generator, not the template verbatim. The generator never edits existing configuration or stores credentials in it. Review and merge just the October Bus entry. Retain the host's own tool approvals and workspace trust controls.
+
+The example sets a 10-second discovery timeout. Use inbox waitMs=1000 initially; discovery timeout is not evidence of the host's tool-execution timeout.
+
+Use `check_inbox` with `waitMs=1000` between work steps. The bridge registers and heartbeats outside the model loop, and attempts retirement when the host closes MCP. A hard kill relies on lease expiry. Each simultaneously connected window/project needs a distinct `--agent` ID; identical IDs deliberately replace the previous execution. Remove this server entry to disconnect, and verify retirement in the Bus before reassigning work.
+
+Before promotion, run the full [compatibility runbook](../../compatibility/RUNBOOK.md), both directions with an independent harness, denied-tool cases, reconnection/replacement, and exact-candidate evidence with model, launch mode and public sanitized artifacts. [Upstream configuration documentation](https://opencode.ai/docs/mcp-servers/).

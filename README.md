@@ -116,7 +116,7 @@ The CLI runs the same Go daemon on macOS, Linux, and Windows, on x64 and arm64. 
 
 ### Build from source
 
-Building October Bus from source requires Go 1.25 or newer.
+The module language floor is Go 1.25; this checkout selects Go 1.27 and CI uses Go 1.27.x. Use Go 1.27 for a reproducible build. The npm SDK supports Node 20+, with CI jobs for Node 20/22 and primary validation on Node 24.
 
 ```bash
 git clone https://github.com/october-dev/october-bus.git
@@ -181,7 +181,17 @@ In another terminal, create a collaboration scope:
 go run ./cmd/october-bus scope create my-project
 ```
 
-The command returns a scope token. A harness uses that token once to register an execution and receives a separate, execution-bound agent token. The TypeScript client lives in `sdk/typescript`. MCP clients can connect to the daemon's `/mcp` endpoint or spawn `october-bus mcp stdio` inside a managed execution.
+The command returns a scope token and saves it in the private local data directory. Keep the returned credential out of model context and shared configuration. A local bridge can now register from that saved credential without exporting tokens into a harness:
+
+```bash
+october-bus harness config cursor --scope my-project --agent builder
+october-bus harness config claude-code --scope my-project --agent reviewer
+# Add each generated entry to its host configuration and launch both hosts.
+october-bus link --scope my-project builder reviewer
+october-bus doctor --harness cursor --scope my-project
+```
+
+Use an installed or built `october-bus` binary for these configurations; a `go run` temporary executable is not a durable installation. See [adapter setup](adapters/README.md) for configuration locations, the native Pi extension and existing managed-launcher mode. The TypeScript client lives in `sdk/typescript`; direct MCP clients can still use the execution-authenticated `/mcp` endpoint.
 
 Migration note: scope-authority endpoints now distinguish a valid credential of the wrong authority from an invalid credential. Agent, A2A-principal, and output-principal credentials receive `PERMISSION_DENIED` (HTTP 403) on scope-only routes; missing, malformed, expired, disabled, and replaced credentials continue to receive `UNAUTHENTICATED` (HTTP 401). Clients should correct the credential type on 403 and only treat 401 as failed authentication.
 
@@ -268,7 +278,7 @@ If a harness cannot safely wake itself or prove that it is idle, it can implemen
 
 ## Harness integrations
 
-October Bus is harness-independent, not tied to Codex. Use the included configurations for [Codex](adapters/codex), [Claude Code](adapters/claude-code), [Cursor](adapters/cursor), and [OpenCode](adapters/opencode), or connect another MCP-capable harness through the [shared stdio bridge](adapters/README.md).
+October Bus is harness-independent, not tied to Codex. This checkout includes candidates for **26 MCP hosts**, a **native Pi extension**, and a managed-launch path for **October Harness**. Start with Codex, Claude Code, Cursor, OpenCode, Gemini CLI or Copilot CLI; see the [full adapter list and setup](adapters/README.md). These are experimental integration paths, not 28 certified harnesses.
 
 For custom integrations, use HTTP or the Go and TypeScript clients. A headless service manifest for Omarchy is also included.
 

@@ -7,12 +7,12 @@ An adapter connects one harness execution to October Bus without changing protoc
 1. Receive a scope credential through a protected bootstrap channel.
 2. Register a stable logical agent ID and a new execution.
 3. Keep the scope credential outside the harness process.
-4. Give the harness only its execution-bound agent credential.
+4. Give the harness only its execution-bound agent credential, or keep it inside a tool bridge so the harness holds no Bus token.
 5. Configure the public HTTP or MCP endpoint.
 6. Renew the lease outside the model loop.
-7. Stop the host if execution authority is replaced and safe continuation cannot be proven.
-8. Mark the execution offline during clean shutdown.
-9. Allow lease expiry to recover state after an unclean shutdown.
+7. Stop Bus access if execution authority is replaced. A managed launcher stops its child; a configuration-only adapter closes its bridge, not an unrelated editor process.
+8. Retire the execution during clean shutdown: revoke its authority and transactionally release its claims and inbox reservations. Merely marking it offline is insufficient.
+9. Allow lease expiry to recover authority and held work after an unclean shutdown.
 
 ## Required behavior
 
@@ -55,7 +55,11 @@ The complete MCP adapter profile requires that the adapter and released harness 
 8. create, claim, release, reclaim, and complete dependency-aware tasks;
 9. create a human escalation without resolving it as the agent;
 10. lose authority when its execution is replaced;
-11. mark itself offline during clean shutdown and recover through lease expiry after an unclean exit; and
+11. retire itself during clean shutdown and recover through lease expiry after an unclean exit; and
 12. keep scope credentials out of the harness process and logs.
 
 Pull-only delivery is allowed when it is declared as a limitation. Platform and optional lifecycle claims require evidence for each claimed environment.
+
+The reference self-registering mode is `mcp stdio --scope <id> --agent <id>`. The bridge reads a protected local scope-token file, owns its session and retires on EOF, cancellation or heartbeat failure. Configuration contains identities/paths, never credentials. Two windows using the same agent ID replace one another; choose separate IDs for concurrent agents. `--check-self-registration` adds this lifecycle to the executable conformance profile when used with `--start-runtime`.
+
+Optional `configuration` metadata in an adapter manifest describes its embedded template, documented host location, format and conservative inbox wait. It is setup data, not a second compatibility registry or proof of a released-host run.

@@ -8,6 +8,8 @@ Each evidence record must validate against [`compatibility-evidence.schema.json`
 
 `registry.json` contains paths to current passing evidence. Failed or stale records may remain for history but must be removed from the registry.
 
+Adapter revision 0.2.0 changes bootstrap and cleanup, so the active registry is currently empty. The Codex 0.152.1 / adapter 0.1.0 / runtime rc.4 record remains in `evidence/` as historical evidence only. None of the new configuration candidates or Pi's transport tests has been promoted to a named-harness certification.
+
 Use the [harness verification runbook](RUNBOOK.md) to produce a reproducible evidence record.
 
 Missing an account or platform? Use [maintainer-assisted verification](VERIFICATION.md) to request a run and prepare a local, sanitized, unreviewed log bundle. CI validates all formal evidence files, including records not listed in the registry.
@@ -37,4 +39,6 @@ Only Tier 2 and Tier 3 integrations may be named as October Bus compatible. Opti
 
 `node scripts/check-compatibility.mjs` cross-checks active evidence with adapter status, exact harness/adapter/protocol/platform versions, distinct combinations, release-like runtime versions, and the 90-day freshness policy. It runs in SDK CI alongside the existing schema checks in Go. Missing public artifact links are reported as unresolved review warnings, not invented attestations.
 
-For launch sign-off, use `node scripts/check-compatibility.mjs --runtime VERSION --require-attestation` with the exact runtime version being advertised. It rejects evidence from a different runtime and missing HTTPS artifact links. This is intentionally stricter than routine metadata linting and will fail until the necessary candidate evidence has been recorded. Neither mode runs a harness, downloads logs, verifies their digest, or replaces independent review of the named-harness runbook. Generic adapter CI alone cannot establish named-harness compatibility.
+For launch sign-off, use `node scripts/check-compatibility.mjs --runtime VERSION --require-attestation --launch-core` with the exact runtime version being advertised. It requires the initial six hosts (Codex, Claude Code, Cursor, OpenCode, Gemini CLI and Copilot CLI), rejecting different runtime versions and missing HTTPS artifact links, `launchMode` or `model`. Mode/model fields remain optional for historical records and participate in distinct-combination checks when present. This deliberately fails until candidate evidence exists. It does not fetch logs, verify their digest or replace independent review. Generic adapter CI alone cannot establish named-harness compatibility.
+
+Release lanes also pass `--source-commit SHA`: evidence must identify the original candidate source, not merely reuse its version string. The evidence JSON may be committed later on reviewed `main`.

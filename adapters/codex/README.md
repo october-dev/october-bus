@@ -1,24 +1,20 @@
 # Codex adapter
 
-Status: verified with Codex CLI 0.152.1 on macOS arm64. Other versions and platforms remain unverified.
+Status: experimental, adapter 0.2.0. Configuration reviewed on 2026-09-10; no named-harness versions or platforms certified for this revision. Refs [#36](https://github.com/october-dev/october-bus/issues/36).
 
-Start October Bus, then create a scope. Add the example MCP server entry to a trusted project's `.codex/config.toml`. It launches the stdio bridge inside the managed agent execution.
+Historical adapter 0.1.0 has [Codex 0.152.1 / rc.4 evidence](../../compatibility/evidence/codex-0.152.1-macos-arm64.json). It does not certify this new adapter revision.
 
-Run Codex through the managed agent command:
+Follow [shared setup](../README.md), then print a personalized snippet:
 
 ```sh
-export OCTOBER_BUS_SCOPE_TOKEN="<scope token>"
-
-october-bus agent run \
-  --id codex \
-  --name Codex \
-  --connect-to claude-code \
-  --capability coding \
-  -- codex
+october-bus harness config codex --scope my-project --agent codex-reviewer --name "Codex Reviewer"
+october-bus doctor --harness codex --scope my-project
 ```
 
-The wrapper gives Codex only its execution-scoped agent token. It owns heartbeat and marks the execution offline when Codex exits. It does not infer model readiness from the process alone.
+Configuration location: `.codex/config.toml`. The [template](config.toml.example) contains placeholders; use the generator, not the template verbatim. The generator never edits existing configuration or stores credentials in it. Review and merge just the October Bus entry. Retain the host's own tool approvals and workspace trust controls.
 
-Codex filters the environment inherited by stdio MCP servers. Keep the `env_vars` list from the example so the bridge receives the Bus address and execution token. Do not add the scope or admin credential to that list.
+Keep CLI, IDE, desktop, and remote evidence separate when the host provides multiple modes.
 
-The example asks before each October Bus tool call. Change the approval mode only when the agent's permissions and scope are appropriate for unattended Bus actions.
+Use `check_inbox` with `waitMs=1000` between work steps. The bridge registers and heartbeats outside the model loop, and attempts retirement when the host closes MCP. A hard kill relies on lease expiry. Each simultaneously connected window/project needs a distinct `--agent` ID; identical IDs deliberately replace the previous execution. Remove this server entry to disconnect, and verify retirement in the Bus before reassigning work.
+
+Before promotion, run the full [compatibility runbook](../../compatibility/RUNBOOK.md), both directions with an independent harness, denied-tool cases, reconnection/replacement, and exact-candidate evidence with model, launch mode and public sanitized artifacts. [Upstream configuration documentation](https://developers.openai.com/codex/mcp).

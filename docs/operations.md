@@ -21,13 +21,23 @@ Use `october-bus doctor --json` for machine-readable diagnostics. It reports ver
 
 ## MCP over stdio
 
-Harnesses that need a local stdio MCP server can run:
+Create a local scope, then configure a host to start:
 
 ```bash
-october-bus mcp stdio
+october-bus mcp stdio --scope my-project --agent reviewer
 ```
 
-The bridge reads `OCTOBER_BUS_ADDRESS` and `OCTOBER_BUS_AGENT_TOKEN`, discovers the daemon's MCP tools, and forwards calls without keeping its own state. `october-bus agent run` supplies both values to the managed harness process. If either value is absent, the bridge starts without tools and does not contact a daemon.
+The bridge reads local discovery and the saved scope token, registers an execution, renews its lease and retires on EOF or failure. Use `harness config <host> --scope <id> --agent <id>` to render the correct host format with explicit paths. `link --scope <id> <a> <b>` links two registered agents. `doctor --harness <host> --scope <id> --json` probes local setup without invoking a model.
+
+The argument-free form remains available inside `agent run`, which supplies `OCTOBER_BUS_ADDRESS` and `OCTOBER_BUS_AGENT_TOKEN`. Missing credentials/identity or mixed modes now fail. Independently launched editors should use configuration-only mode, not rely on a terminal's environment.
+
+### Saved scope credentials
+
+Local CLI create, successful import and token rotation save a raw scope credential under `DataDir/scopes/<sha256(scope-id)>.token`. Case-sensitive IDs remain distinct and filenames avoid Windows reserved names/characters. Files request mode 0600, directories 0700; Unix reads reject shared permissions and symlinks. Windows requires owner-restricted directory ACLs: Unix mode bits do not establish that guarantee. Same-user processes remain trusted.
+
+Successful local CLI deletion removes the matching token file. Remote/API/SDK mutations cannot update another machine's cache. If a response or disk write is lost, repair permissions and rotate again using local admin authority. Stop/restart affected bridges after rotation. A token file alone is not a backup of collaboration data; a full database snapshot does not include these separate files. Keep backup access restricted and recreate cached tokens by rotation after restore when necessary.
+
+Generated configurations contain no tokens but do contain executable paths; review them as code. Never import configuration from an untrusted repository automatically. Removing a host entry does not delete its durable scope data.
 
 ## Reaching /mcp from another machine
 

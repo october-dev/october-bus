@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const maxLogBytes = 16 * 1024 * 1024
 const defaultSecretNames = ['OCTOBER_BUS_ADMIN_TOKEN', 'OCTOBER_BUS_SCOPE_TOKEN', 'OCTOBER_BUS_AGENT_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']
 const fields = ['harnessFamily', 'harnessVersion', 'adapterId', 'adapterVersion', 'protocolVersion', 'runtimeVersion', 'operatingSystem', 'architecture', 'profile', 'repositoryCommit', 'verificationMode', 'attemptedAt', 'outcome', 'limitations']
+const optionalFields = ['launchMode', 'model']
 const check = (condition, message) => { if (!condition) throw new Error(message) }
 const digest = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 
@@ -36,8 +37,8 @@ function readJSON(path) {
 
 export function validateAttempt(metadata) {
   check(metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata), 'Attempt metadata must be an object')
-  check(Object.keys(metadata).length === fields.length && fields.every(field => Object.hasOwn(metadata, field)), 'Attempt metadata has missing or unknown fields')
-  for (const field of fields.filter(field => field !== 'limitations')) {
+  check(Object.keys(metadata).every(field => fields.includes(field) || optionalFields.includes(field)) && fields.every(field => Object.hasOwn(metadata, field)), 'Attempt metadata has missing or unknown fields')
+  for (const field of [...fields.filter(field => field !== 'limitations'), ...optionalFields.filter(field => Object.hasOwn(metadata, field))]) {
     check(typeof metadata[field] === 'string' && metadata[field].trim().length > 0 && metadata[field].length <= 256 && !/[\x00-\x1f\x7f]/.test(metadata[field]), `Invalid metadata field: ${field}`)
   }
   check(/^[a-z0-9][a-z0-9-]{0,63}$/.test(metadata.adapterId), 'Invalid adapterId')

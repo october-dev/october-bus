@@ -1,0 +1,5 @@
+[[mcp_servers]]
+name = "october_bus"
+transport = "stdio"
+command = "{{command}}"
+args = ["mcp","stdio","--scope","{{scope}}","--agent","{{agent}}","--name","{{name}}","--data-dir","{{dataDir}}","--runtime-dir","{{runtimeDir}}"]

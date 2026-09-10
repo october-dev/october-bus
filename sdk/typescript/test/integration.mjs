@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { checkHarnessSetup } from './harness-integration.mjs'
 import {
   OctoberBusAdminClient,
   OctoberBusAgentSession,
@@ -51,6 +52,7 @@ async function readRunFile() {
 
 try {
   const run = await readRunFile()
+  await checkHarnessSetup(binary, run, { ...process.env, OCTOBER_BUS_DATA_DIR: dataDir, OCTOBER_BUS_RUNTIME_DIR: runtimeDir }, root)
   const admin = new OctoberBusAdminClient(run.address, run.adminToken)
   const health = await admin.health()
   assert.equal(health.protocolVersion, '0.1')
@@ -113,6 +115,10 @@ try {
   await reviewerSession.setState('ready', true)
   const planner = plannerSession.client
   const reviewer = reviewerSession.client
+  const node = await planner.nodeStatus()
+  assert.equal(node.identity.agentId, 'planner')
+  assert.equal(node.identity.executionId, plannerSession.registration.executionId)
+  assert.equal(node.agent.id, 'planner')
   const outputStream = await owner.createOutputStream({
     name: 'site-preview',
     retentionLimit: 2,

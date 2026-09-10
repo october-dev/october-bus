@@ -10,6 +10,12 @@ import { createVerificationBundle, redactLog, validateAttempt, verifyVerificatio
 
 const example = JSON.parse(readFileSync(new URL('../compatibility/attempt.example.json', import.meta.url)))
 const cli = fileURLToPath(new URL('./verification-bundle.mjs', import.meta.url))
+test('optional launch mode and model metadata survive validation, but reject unsafe values', () => {
+  validateAttempt({ ...example, launchMode: 'config-only', model: 'provider/model' })
+  for (const field of ['launchMode', 'model']) {
+    for (const value of ['', 1, 'bad\nvalue', 'x'.repeat(257)]) assert.throws(() => validateAttempt({ ...example, [field]: value }))
+  }
+})
 function fixture(t, changes = {}, log = 'Setup attempted; authentication unavailable.\n') {
   const root = mkdtempSync(join(tmpdir(), 'bus-verification-test-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))

@@ -705,9 +705,24 @@ func TestHTTPAndMCPUseTheSameAgentAuthority(t *testing.T) {
 	requireNoError(t, err)
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 14 {
+	if err != nil || len(tools.Tools) != 15 {
 		t.Fatalf("unexpected tools: %d, %v", len(tools.Tools), err)
 	}
+	for _, input := range []*mcp.CallToolParams{
+		{Name: "acknowledge_messages", Arguments: map[string]any{"messageIds": "[]"}},
+		{Name: "add_task", Arguments: map[string]any{"title": "strict daemon", "dependencies": "[]"}},
+	} {
+		result, err := session.CallTool(ctx, input)
+		require(t, err != nil || result.IsError, "direct MCP accepted a stringified array")
+	}
+	authorized, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "message_receipt", Arguments: map[string]any{"messageId": receipt.MessageID}})
+	require(t, err == nil && !authorized.IsError, "sender receipt lookup failed: %v", err)
+	unrelated, err := ownerClient.RegisterAgent(ctx, RegisterAgentInput{ID: "unrelated", DisplayName: "Unrelated", ConnectTo: []string{"reviewer"}})
+	requireNoError(t, err)
+	privateReceipt, err := (Client{Address: address, Token: unrelated.AgentToken}).SendMessage(ctx, SendMessageInput{To: "reviewer", Body: "Not the planner's message"})
+	requireNoError(t, err)
+	denied, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "message_receipt", Arguments: map[string]any{"messageId": privateReceipt.MessageID}})
+	require(t, err != nil || denied.IsError, "unrelated agent inspected a private receipt")
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_peers", Arguments: map[string]any{}})
 	require(t, err == nil && !result.IsError, "MCP list_peers failed: %#v, %v", result, err)
 	structured, ok := result.StructuredContent.(map[string]any)
