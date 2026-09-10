@@ -122,6 +122,23 @@
         }
       }
     },
+    "nodeStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "agent"],
+      "properties": {
+        "identity": {
+          "type": "object", "additionalProperties": false,
+          "required": ["scopeId", "agentId", "executionId", "leaseExpiresAt"],
+          "properties": {
+            "scopeId": { "$ref": "#/$defs/identifier" },
+            "agentId": { "$ref": "#/$defs/identifier" },
+            "executionId": { "$ref": "#/$defs/identifier" },
+            "leaseExpiresAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "agent": { "$ref": "#/$defs/agent" }
+      }
+    },
     "agentIdentity": {
       "type": "object",
       "additionalProperties": false,

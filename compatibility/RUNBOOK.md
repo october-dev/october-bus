@@ -6,9 +6,9 @@ Use this runbook to exercise a released harness and adapter through public Octob
 
 1. Install the October Bus release being tested.
 2. Start the daemon and create a new scope.
-3. Start a controller as `agent-a` through one adapter.
-4. Start the harness under test as `agent-b` through its documented adapter command.
-5. Confirm the scope credential is absent from both harness processes.
+3. Generate each host's config with `harness config <host> --scope <scope> --agent agent-a` (and `agent-b`). Use separate agent IDs and preserve host approvals.
+4. Launch one independent controller host and the harness under test normally, without `agent run` or inherited Bus tokens; link them with `link --scope <scope> agent-a agent-b`. Test managed mode separately if advertised. For Pi use its native extension instructions.
+5. Confirm no Bus credentials appear in host configuration, arguments, model context or logs. The token-file bridge owns scope/execution credentials; same-user filesystem access is not sandbox isolation.
 
 Keep registration, heartbeat, execution replacement, and cleanup in the adapter. Do not ask the model to maintain its own lease.
 
@@ -19,16 +19,18 @@ Keep registration, heartbeat, execution replacement, and cleanup in the adapter.
 3. `agent-a` sends a request with a fresh idempotency key and bounded context.
 4. Retrying that logical request returns the original message ID.
 5. `agent-b` acknowledges the request and sends one linked response.
-6. `agent-a` acknowledges the response and verifies the request receipt links to it.
+6. `agent-a` acknowledges the response and calls `message_receipt` with the original `messageId`, verifying `responseMessageId`. An unrelated agent's receipt lookup must fail.
 7. `agent-a` creates a task and a second task that depends on it.
 8. Claiming the blocked task fails.
 9. `agent-b` claims, releases, reclaims, and completes the first task.
 10. `agent-a` claims and completes the newly ready task.
 11. `agent-b` creates a human escalation. Only the scope owner resolves it.
 12. Restart `agent-b` and verify the previous execution loses authority.
-13. Stop both harnesses and verify clean offline state. Repeat one run with an unclean exit and verify lease recovery.
+13. Stop both harnesses and verify retirement: offline/unreachable, old token rejected, reservations and claims released. Repeat one run with an unclean exit and verify lease recovery.
 
-Record every host prompt, approval, limitation, result, and version. A model retry that corrects its own invalid tool input is allowed but must be recorded.
+Also cancel a waiting tool call and immediately make another call; cancellation must not poison the bridge. Test duplicate-window replacement, host restart/reload, a rejected tool approval and a missing/rotated local scope token. Preserve genuine JSON arrays in host inputs; record any bridge coercion of stringified arrays. Direct HTTP remains strict. Start inbox waits at 10 seconds and separately record host startup, discovery and tool-call timeout settings.
+
+Record every host prompt, approval, limitation, result and version, plus `launchMode` (for example `config-only`, `managed` or `native-extension`) and `model` (provider and exact model ID). A model retry that corrects its own invalid tool input is allowed but must be recorded. A local doctor's 15-tool check is not a substitute for these real-host scenarios.
 
 ## Evidence
 

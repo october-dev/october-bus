@@ -61,6 +61,7 @@ func run() error {
 	address := flags.String("address", os.Getenv("OCTOBER_BUS_ADDRESS"), "October Bus address")
 	adminTokenEnv := flags.String("admin-token-env", "OCTOBER_BUS_ADMIN_TOKEN", "environment variable containing the admin token")
 	startRuntime := flags.Bool("start-runtime", false, "start an isolated runtime for this run")
+	selfRegistration := flags.Bool("check-self-registration", false, "also verify reference bridge self-registration; requires mcp-adapter and start-runtime")
 	adapterCommand := flags.String("adapter-command", "", "executable for the mcp-adapter profile")
 	var adapterArgs stringList
 	flags.Var(&adapterArgs, "adapter-arg", "adapter argument, repeatable")
@@ -89,6 +90,9 @@ func run() error {
 	}
 	if *startRuntime && addressSet {
 		return errors.New("address cannot be combined with start-runtime")
+	}
+	if *selfRegistration && (!*startRuntime || *profile != conformance.ProfileMCPAdapter) {
+		return errors.New("check-self-registration requires --start-runtime and --profile mcp-adapter")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -131,8 +135,13 @@ func run() error {
 	var result conformance.Result
 	var runErr error
 	if *profile == conformance.ProfileMCPAdapter {
+		var localPaths *bus.DaemonPaths
+		if *selfRegistration {
+			localPaths = &temporaryRuntime.daemon.Paths
+		}
 		result, runErr = conformance.RunMCPAdapter(ctx, conformance.MCPAdapterOptions{
 			Address: *address, AdminToken: adminToken, Command: *adapterCommand, Args: adapterArgs,
+			LocalPaths: localPaths,
 		})
 	} else {
 		result, runErr = conformance.Run(ctx, conformance.Options{Address: *address, AdminToken: adminToken})

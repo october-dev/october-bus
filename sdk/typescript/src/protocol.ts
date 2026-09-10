@@ -25,6 +25,11 @@ export interface AgentIdentity {
   executionId: ExecutionId
 }
 
+export interface NodeStatus {
+  identity: AgentIdentity & { leaseExpiresAt: string }
+  agent: Agent
+}
+
 export interface Agent {
   id: AgentId
   displayName: string

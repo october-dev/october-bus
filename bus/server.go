@@ -294,6 +294,14 @@ func (s *Server) newMCPServer(token string) *mcp.Server {
 			count, err := s.runtime.AcknowledgeMessages(ctx, token, input.MessageIDs)
 			return nil, map[string]int64{"acknowledged": count}, err
 		})
+	type receiptInput struct {
+		MessageID string `json:"messageId"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "message_receipt", Description: "Inspect a sent or received message's delivery state and linked response, without message contents."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input receiptInput) (*mcp.CallToolResult, any, error) {
+			result, err := s.runtime.Receipt(ctx, token, input.MessageID)
+			return nil, result, err
+		})
 	// Avoid naming this field Title: jsonschema-go treats a top-level Go field
 	// with that name as the schema's title annotation and omits the JSON
 	// property. The MCP validator would then reject the required task title.

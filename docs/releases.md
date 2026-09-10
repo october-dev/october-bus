@@ -10,6 +10,8 @@ The release workflow also requires the tag to identify the merge commit of a mai
 
 Release binaries embed the version from the tag. Tags containing a hyphen create a prerelease.
 
+A stable tag must point to the original reviewed candidate source commit. Verification pins a separately reviewed `main` evidence commit and requires all six launch-core host records to match both the tag's runtime version and source SHA. This allows evidence to land after candidate publication without rebuilding a different source revision. Native archives are still built from the tagged source, not from the later evidence checkout.
+
 Download the archive for your operating system and architecture from the [GitHub releases page](https://github.com/october-dev/october-bus/releases). Verify its SHA-256 value against `checksums.txt`, extract the archive, and place the `october-bus` binary on your `PATH`. Each archive also contains the conformance runner, license, specification, and documentation.
 
 Before creating a tag:
@@ -22,7 +24,7 @@ Before creating a tag:
 
 Platform code signing and notarization require the relevant platform identities. Unsigned artifacts must remain clearly identified until those identities and verification steps are configured.
 
-## npm CLI and TypeScript prereleases
+## npm CLI and TypeScript distribution
 
 The npm package uses pre-1.0 versions. From `0.1.0-next.14`, it contains both the TypeScript SDK and a Node launcher for the native Go daemon. Six exact-version optional dependencies, named `@october-dev/october-bus-{darwin,linux,win32}-{x64,arm64}`, carry the prebuilt executables. The launcher does not download binaries, execute a shell, or fall back to PATH. Linux builds use `CGO_ENABLED=0`, so a separate musl package is unnecessary.
 
@@ -33,6 +35,22 @@ Only after those checks pass does the `npm` environment publish the six platform
 Builds record the source commit, a digest of tracked and non-ignored source files, and the native binary integrity. Packing rejects an outdated version, source, target metadata, or changed binary. The SDK compiles into a new temporary staging directory, excluding stale output and published lifecycle/dev scripts. Every `.tgz` has a `.tgz.json` record identifying the checked package, required executable path, source, and SHA-512 integrity. These records travel with the CI artifacts; publishing rejects missing, changed, or mismatched records before contacting npm. They detect accidental artifact mixups, not a malicious replacement of both the workflow and its records; GitHub review, protected artifacts and provenance remain the trust boundary.
 
 The publisher then preflights **all seven** immutable versions before its first registry write. An existing-content mismatch or a registry/authentication error at the final package cannot partially publish the earlier packages. Publishing itself is not transactional: a failure during the write phase can leave some native versions published. Preserve the exact tarballs and records for a retry. Identical existing versions are not retagged, avoiding accidental rollback of another release's `next` tag.
+
+### Candidate publication and stable promotion
+
+The dispatch workflow retains its `publish-npm-prerelease.yml` filename for trusted-publisher identity. Its explicit `channel` selects:
+
+- `next`: prerelease versions only, published with provenance under `next`.
+- `candidate`: a stable version, with exact `confirm_version`, published under a non-default `candidate` tag. This does not declare launch readiness.
+- `latest`: promote already-published stable artifacts, never rebuild or republish them. Supply the exact version and original successful candidate workflow's `candidate_run_id`.
+
+Promotion validates the original run's repository, workflow, main branch and success; both the candidate and evidence/promotion commits must meet independent release-review policy. It checks the original tarballs against their original clean source checkout and all seven public registry integrities. Current evidence must pass the exact-version `--require-attestation --launch-core` gate for all six launch hosts. Only then are native tags moved, followed by the parent. A retry repeats exact-version assignments; dist-tags are not transactional. Keep candidate artifacts available until promotion finishes—expired artifacts must not be replaced by an unverified rebuild.
+
+Evidence normally lands after candidate publication. Rebuilding from the evidence commit would change source identity and make immutable-version promotion impossible; the separate original-artifact lane avoids this cycle.
+
+OIDC authorizes publication, not arbitrary dist-tag changes. The promotion job requires a separately approved, narrowly scoped `NPM_DIST_TAG_TOKEN` in the protected `npm` environment; provision/rotate it under maintainer policy, never in this repository. Existing local interactive npm authentication is another operator option for tag promotion. Do not weaken provenance or package protection to bypass missing authority. See [npm's trusted-publishing limitations](https://docs.npmjs.com/trusted-publishers/).
+
+These checks are necessary, not sufficient for stable launch. Platform execution coverage, protocol freeze, signing/notarization or an explicitly approved unsigned boundary, retention/upgrade evidence and the real-user pilot remain release sign-offs. No account settings, secrets, tags or publications are changed by preparing this code.
 
 ### First-publication setup
 

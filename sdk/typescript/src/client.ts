@@ -22,6 +22,7 @@ import type {
   EventBatch,
   HumanEscalation,
   InboxReservation,
+  NodeStatus,
   IssuedA2APrincipal,
   IssuedOutputPrincipal,
   OutputHistory,
@@ -646,6 +647,10 @@ export class OctoberBusClient {
 
   mcpEndpoint(): { url: string; headers: Record<string, string> } {
     return { url: `${this.address}/mcp`, headers: { Authorization: `Bearer ${this.agentToken}` } }
+  }
+
+  nodeStatus(options?: OperationOptions): Promise<NodeStatus> {
+    return request(this.address, this.agentToken, 'GET', '/v1/me', undefined, options)
   }
 }
 

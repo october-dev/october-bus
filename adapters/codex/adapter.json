@@ -1,22 +1,39 @@
 {
   "schemaVersion": 1,
   "id": "codex-mcp",
-  "adapterVersion": "0.1.0",
+  "adapterVersion": "0.2.0",
   "harnessFamily": "Codex",
-  "status": "verified",
-  "protocolVersions": ["0.1"],
+  "status": "experimental",
+  "protocolVersions": [
+    "0.1"
+  ],
   "transport": "mcp",
   "delivery": "pull",
   "lifecycleEvidence": "process",
-  "capabilities": ["discovery", "messaging", "requests", "tasks", "escalation", "bounded-context"],
-  "testedVersions": ["0.152.1"],
-  "platforms": ["macos"],
+  "capabilities": [
+    "discovery",
+    "messaging",
+    "requests",
+    "tasks",
+    "escalation",
+    "bounded-context"
+  ],
+  "testedVersions": [],
+  "platforms": [],
   "maintainer": "October",
   "repository": "https://github.com/october-dev/october-bus",
   "limitations": [
-    "Pull-only delivery",
-    "Process reachability does not prove model readiness",
-    "Verified only on macOS arm64"
+    "Configuration reviewed against upstream documentation; this adapter revision has no named-harness certification",
+    "Pull-only: queued work does not start a model turn",
+    "One MCP configuration is one execution; duplicate agent IDs replace earlier executions"
   ],
-  "conformanceCommand": "october-bus-conformance --profile mcp-adapter --start-runtime --adapter-command october-bus --adapter-arg mcp --adapter-arg stdio"
+  "conformanceCommand": "october-bus-conformance --profile mcp-adapter --start-runtime --adapter-command october-bus --adapter-arg mcp --adapter-arg stdio --check-self-registration",
+  "configuration": {
+    "file": "config.toml.example",
+    "format": "toml",
+    "location": ".codex/config.toml",
+    "executable": "codex",
+    "docs": "https://developers.openai.com/codex/mcp",
+    "recommendedWaitMs": 1000
+  }
 }

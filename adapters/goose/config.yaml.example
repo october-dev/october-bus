@@ -1,0 +1,25 @@
+{
+  "extensions": {
+    "october_bus": {
+      "name": "October Bus",
+      "type": "stdio",
+      "cmd": "{{command}}",
+      "args": [
+        "mcp",
+        "stdio",
+        "--scope",
+        "{{scope}}",
+        "--agent",
+        "{{agent}}",
+        "--name",
+        "{{name}}",
+        "--data-dir",
+        "{{dataDir}}",
+        "--runtime-dir",
+        "{{runtimeDir}}"
+      ],
+      "enabled": true,
+      "timeout": 60
+    }
+  }
+}

@@ -146,6 +146,10 @@ func (c Client) Heartbeat(ctx context.Context, input HeartbeatInput) (Agent, err
 	return request[Agent](ctx, c, http.MethodPatch, "/v1/me/heartbeat", input)
 }
 
+func (c Client) NodeStatus(ctx context.Context) (NodeStatus, error) {
+	return request[NodeStatus](ctx, c, http.MethodGet, "/v1/me", nil)
+}
+
 func (c Client) ListPeers(ctx context.Context) ([]Agent, error) {
 	return request[[]Agent](ctx, c, http.MethodGet, "/v1/peers", nil)
 }

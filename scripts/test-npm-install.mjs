@@ -67,6 +67,8 @@ try {
   const installed = JSON.parse(readFileSync(join(root, 'node_modules/@october-dev/october-bus/package.json'), 'utf8'))
   assert.deepEqual(installed.optionalDependencies, distributionManifest().optionalDependencies)
   assert.equal(installed.scripts, undefined)
+  assert.deepEqual(installed.pi, { extensions: ['./extensions/pi/index.mjs'] })
+  await execute(process.execPath, ['--input-type=module', '-e', 'const m = await import("./node_modules/@october-dev/october-bus/extensions/pi/index.mjs"); if (typeof m.default !== "function") process.exit(1)'], options)
   const mapPath = join(root, 'node_modules/@october-dev/october-bus/dist/client.js.map')
   const sourceMap = JSON.parse(readFileSync(mapPath, 'utf8'))
   assert.equal(resolve(dirname(mapPath), sourceMap.sourceRoot, sourceMap.sources[0]), join(root, 'node_modules/@october-dev/october-bus/src/client.ts'), 'Source maps must refer to the packaged source, not a temporary build directory')

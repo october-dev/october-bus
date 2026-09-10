@@ -42,7 +42,10 @@ export function validateDistribution() {
 
 export function distributionManifest() {
   const { scripts, devDependencies, ...published } = manifest
-  return { ...published, optionalDependencies: Object.fromEntries(targets.map(target => [packageFor(target).name, manifest.version])) }
+  return { ...published,
+    files: [...published.files, 'extensions/pi/*.mjs', 'extensions/pi/README.md'],
+    pi: { extensions: ['./extensions/pi/index.mjs'] },
+    optionalDependencies: Object.fromEntries(targets.map(target => [packageFor(target).name, manifest.version])) }
 }
 
 export function requiredPath(name) {
@@ -99,6 +102,9 @@ function pack(directory, name, source) {
   assert.equal(result.name, name)
   assert.equal(result.version, manifest.version)
   assert.ok(result.files.some(file => file.path === expectedBinary), `Packed binary/launcher missing: ${expectedBinary}`)
+  if (name === manifest.name) {
+    for (const file of ['extensions/pi/index.mjs', 'extensions/pi/bridge.mjs']) assert.ok(result.files.some(entry => entry.path === file), `Packed Pi extension missing: ${file}`)
+  }
   const record = { schemaVersion: 1, name, version: manifest.version, requiredPath: expectedBinary, source, integrity: integrity(tarball(name)) }
   assert.equal(result.integrity, record.integrity)
   writeFileSync(`${tarball(name)}.json`, `${JSON.stringify(record, null, 2)}\n`)
@@ -125,6 +131,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       for (const path of ['cli', 'src', 'LICENSE', 'README.md']) {
         cpSync(join(sdk, path), join(stagedSDK, path), { recursive: true })
       }
+      mkdirSync(join(stagedSDK, 'extensions/pi'), { recursive: true })
+      for (const file of ['index.mjs', 'bridge.mjs']) copyFileSync(join(root, 'adapters/pi', file), join(stagedSDK, 'extensions/pi', file))
+      writeFileSync(join(stagedSDK, 'extensions/pi/README.md'), `# Pi extension\n\nExperimental native session adapter. Generate configuration with october-bus harness config pi and set OCTOBER_BUS_PI_CONFIG to its reviewed absolute path. No host certification is implied.\n\n[Setup and limitations](https://github.com/october-dev/october-bus/blob/${source.commit}/adapters/pi/README.md)\n`)
       writeFileSync(join(stagedSDK, 'package.json'), `${JSON.stringify(distributionManifest(), null, 2)}\n`)
       pack(stagedSDK, manifest.name, source)
     } finally {

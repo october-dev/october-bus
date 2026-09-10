@@ -26,6 +26,8 @@
     "schemaVersion": { "const": 1 },
     "harnessFamily": { "type": "string", "minLength": 1 },
     "harnessVersion": { "type": "string", "minLength": 1 },
+    "launchMode": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "model": { "type": "string", "minLength": 1, "maxLength": 256 },
     "adapterId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
     "adapterVersion": { "type": "string", "minLength": 1 },
     "protocolVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },

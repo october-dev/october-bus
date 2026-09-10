@@ -52,20 +52,21 @@ func TestFailureResultNamesTheFailedCheck(t *testing.T) {
 }
 
 func TestMCPAdapterProfile(t *testing.T) {
-	runtimeValue, err := bus.Open(":memory:")
+	paths := bus.DaemonPaths{DataDir: t.TempDir(), RuntimeDir: t.TempDir()}
+	paths.Database = filepath.Join(paths.DataDir, "bus.sqlite")
+	paths.RunFile = filepath.Join(paths.RuntimeDir, "bus.json")
+	paths.LockFile = filepath.Join(paths.RuntimeDir, "daemon.lock")
+	daemon, err := bus.StartDaemon(context.Background(), 0, &paths)
 	requireNoError(t, err)
-	server := bus.NewServer(runtimeValue, bus.ServerOptions{AdminToken: "conformance-admin-token"})
-	address, err := server.Start()
-	requireNoError(t, err)
-	defer server.Stop(context.Background())
+	defer daemon.Stop(context.Background())
 	binary := buildRuntimeCommand(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
 	result, err := conformance.RunMCPAdapter(ctx, conformance.MCPAdapterOptions{
-		Address: address, AdminToken: "conformance-admin-token", Command: binary, Args: []string{"mcp", "stdio"},
+		Address: daemon.RunFile.Address, AdminToken: daemon.RunFile.AdminToken, Command: binary, Args: []string{"mcp", "stdio"}, LocalPaths: &paths,
 	})
 	requireNoError(t, err)
-	require(t, result.Profile == conformance.ProfileMCPAdapter && result.ProtocolVersion == bus.ProtocolVersion && len(result.Passed) == 14 && len(result.Failed) == 0 && result.CompletedAt != "", "unexpected result: %#v", result)
+	require(t, result.Profile == conformance.ProfileMCPAdapter && result.ProtocolVersion == bus.ProtocolVersion && len(result.Passed) == 15 && len(result.Failed) == 0 && result.CompletedAt != "", "unexpected result: %#v", result)
 }
 
 func TestMCPAdapterFailureNamesStartupCheck(t *testing.T) {

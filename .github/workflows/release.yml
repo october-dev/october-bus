@@ -44,6 +44,24 @@ jobs:
         working-directory: sdk/typescript
       - run: npm run test:release
         working-directory: sdk/typescript
+      - name: Pin reviewed evidence head for a stable runtime tag
+        id: evidence
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_evidence_sha="$(git rev-parse origin/main)"
+          GITHUB_SHA="${release_evidence_sha}" node scripts/release-policy.mjs
+          echo "sha=${release_evidence_sha}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ !contains(github.ref_name, '-') }}
+        with:
+          ref: ${{ steps.evidence.outputs.sha }}
+          path: release-evidence
+      - name: Require exact-source launch-core evidence for a stable runtime tag
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: node release-evidence/scripts/check-compatibility.mjs --runtime "${GITHUB_REF_NAME#v}" --source-commit "${GITHUB_SHA}" --require-attestation --launch-core
       - run: go build -o /tmp/october-bus ./cmd/october-bus
       - run: npm run test:integration
         working-directory: sdk/typescript
@@ -104,7 +122,7 @@ jobs:
           go build -trimpath -ldflags "-s -w -X github.com/october-dev/october-bus/bus.Version=${OCTOBER_BUS_VERSION}" -o "dist/${OCTOBER_BUS_DIRECTORY}/october-bus${OCTOBER_BUS_SUFFIX}" ./cmd/october-bus
           go build -trimpath -ldflags "-s -w -X github.com/october-dev/october-bus/bus.Version=${OCTOBER_BUS_VERSION}" -o "dist/${OCTOBER_BUS_DIRECTORY}/october-bus-conformance${OCTOBER_BUS_SUFFIX}" ./cmd/october-bus-conformance
           cp LICENSE README.md "dist/${OCTOBER_BUS_DIRECTORY}/"
-          cp -R docs spec "dist/${OCTOBER_BUS_DIRECTORY}/"
+          cp -R docs spec adapters compatibility assets "dist/${OCTOBER_BUS_DIRECTORY}/"
           if [[ "${GOOS}" == "windows" ]]; then
             (cd dist && zip -qr "${OCTOBER_BUS_DIRECTORY}.zip" "${OCTOBER_BUS_DIRECTORY}")
           else

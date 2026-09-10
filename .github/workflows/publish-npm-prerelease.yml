@@ -1,18 +1,37 @@
-name: Publish npm prerelease
+name: Publish npm distribution
 
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: next publishes prereleases; candidate publishes stable without changing latest; latest promotes existing identical stable artifacts
+        type: choice
+        options: [next, candidate, latest]
+        default: next
+        required: true
+      confirm_version:
+        description: Exact package version; required for candidate/latest
+        type: string
+        required: false
+      candidate_run_id:
+        description: Successful candidate workflow run ID containing original tarballs; required for latest
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-prerelease
+  group: npm-distribution
   cancel-in-progress: false
+
+env:
+  OCTOBER_BUS_NPM_CHANNEL: ${{ inputs.channel }}
+  OCTOBER_BUS_CONFIRM_VERSION: ${{ inputs.confirm_version }}
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.channel != 'latest'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,6 +57,9 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Validate publication channel before building
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict"; import { validateChannel } from "../../scripts/publish-npm.mjs"; import { manifest } from "../../scripts/npm-distribution.mjs"; validateChannel(manifest.version, process.env.OCTOBER_BUS_NPM_CHANNEL); if (process.env.OCTOBER_BUS_NPM_CHANNEL !== "next") assert.equal(process.env.OCTOBER_BUS_CONFIRM_VERSION, manifest.version);'
       - run: go test -race -count=1 ./...
         working-directory: .
       - run: go vet ./...
@@ -94,6 +116,59 @@ jobs:
         with:
           name: npm-distribution
           path: dist/npm
-      - name: Publish native packages first, then CLI and SDK
+      - name: Publish or promote native packages first, then CLI and SDK
         run: npm run publish:distribution
         working-directory: sdk/typescript
+
+  promote:
+    if: github.ref == 'refs/heads/main' && inputs.channel == 'latest'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Verify reviewed evidence/promotion commit
+        run: node scripts/release-policy.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Require separately approved dist-tag authority
+        run: node -e 'if (!process.env.NODE_AUTH_TOKEN) throw new Error("Configure a narrowly scoped NPM_DIST_TAG_TOKEN in the protected npm environment; OIDC publish authority cannot update dist-tags")'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DIST_TAG_TOKEN }}
+      - name: Validate original candidate run
+        id: candidate
+        run: node scripts/candidate-run.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OCTOBER_BUS_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      - name: Verify reviewed original candidate commit
+        run: node scripts/release-policy.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.candidate.outputs.candidate_sha }}
+          path: candidate-source
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: npm-distribution
+          path: dist/npm
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - run: node --test scripts/publish-npm.test.mjs scripts/candidate-run.test.mjs scripts/check-compatibility.test.mjs
+      - name: Promote original checked artifacts after exact-version launch-core evidence
+        run: npm run publish:distribution
+        working-directory: sdk/typescript
+        env:
+          OCTOBER_BUS_CANDIDATE_SOURCE: ${{ github.workspace }}/candidate-source
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DIST_TAG_TOKEN }}
