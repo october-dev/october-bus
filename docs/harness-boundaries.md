@@ -16,6 +16,8 @@ The audit's unknown-product list was too broad. [Prime Agent](../adapters/prime-
 
 Freebuff's inspected loader gives later home entries precedence despite a contradictory comment, and its client drops MCP `isError` while mapping content. These are concrete upstream risks to verify or resolve, not reasons to relax Bus authorization. Prime Agent's lazy kernel connection must start before peer linking. Kimchi's imported configurations must not duplicate an execution ID. See the adapter notes and primary-source links for each.
 
+[Grok](../adapters/grok) (#30) and [DeepSeek](../adapters/deepseek) (#41) now have concrete configuration candidates through the Grok Build CLI's MCP client and the DeepSeek Harness (`dsh`) MCP client plugin, respectively. Both remain experimental and require released-host evidence; DeepSeek Harness is a developer preview with announced compatibility-breaking changes.
+
 ## Remote-host boundary
 
 The Devin candidate uses its [documented STDIO surface](https://docs.devin.ai/work-with-devin/mcp), with the daemon and bridge **inside the same managed sandbox**. An operator must install the reviewed Bus binary there, provision private data/runtime directories, start the daemon and create its scope, then generate the configuration in that environment. Do not generate laptop paths and expect the cloud host to reach them. Devin's isolated tool-listing test may not share a running task sandbox; prove both environments explicitly.
@@ -29,7 +31,6 @@ This supports colocated collaboration only. Connecting a remote host to a laptop
 | Target | Missing boundary / next evidence |
 | --- | --- |
 | Aider (#47) | [Scripting documentation](https://aider.chat/docs/scripting.html) establishes programmatic prompting, not a demonstrated full external-tool lifecycle. A prompt/terminal-text wrapper does not satisfy the Bus adapter contract. |
-| DeepSeek (#41) | Identify a concrete released harness, or treat it as a provider variation inside another host. Model APIs alone do not consume Bus work. Grok (#30) moved to a configuration candidate via the Grok Build CLI's MCP client. |
 | Muse Code (#32) | Meta's [developer portal](https://dev.meta.ai/) requires login. Obtain accessible vendor documentation for external tools and session ownership; a skills folder or similarly named community MCP server does not establish that boundary. |
 
-For each unresolved target, supply the exact product/version, public tool/session hook, account/permission requirements and maintainer. Then implement the smallest shared-bridge or native shim and run the same independent-host evidence process. These three targets remain blocked, not silently counted as supported or marked complete. All 29 existing candidate paths still require released-host evidence and maintenance ownership.
+For each unresolved target, supply the exact product/version, public tool/session hook, account/permission requirements and maintainer. Then implement the smallest shared-bridge or native shim and run the same independent-host evidence process. These two targets remain blocked, not silently counted as supported or marked complete. All 30 existing candidate paths still require released-host evidence and maintenance ownership.
