@@ -278,7 +278,7 @@ If a harness cannot safely wake itself or prove that it is idle, it can implemen
 
 ## Harness integrations
 
-October Bus is harness-independent, not tied to Codex. This checkout includes candidates for **26 MCP hosts**, a **native Pi extension**, and a managed-launch path for **October Harness**. Start with Codex, Claude Code, Cursor, OpenCode, Gemini CLI or Copilot CLI; see the [full adapter list and setup](adapters/README.md). These are experimental integration paths, not 28 certified harnesses.
+October Bus is harness-independent, not tied to Codex. This checkout includes candidates for **27 MCP hosts**, a **native Pi extension**, and a managed-launch path for **October Harness**. Start with Codex, Claude Code, Cursor, OpenCode, Gemini CLI or Copilot CLI; see the [full adapter list and setup](adapters/README.md). These are experimental integration paths, not 29 certified harnesses.
 
 For custom integrations, use HTTP or the Go and TypeScript clients. A headless service manifest for Omarchy is also included.
 

@@ -1,6 +1,6 @@
 # Harness adapters
 
-October Bus ships configuration candidates for 26 MCP hosts, a native Pi extension, and a managed-launch path for October Harness's existing native integration. Configuration count is **not** a verified-support count: adapter revision 0.2.0 is experimental until each released host completes the [runbook](../compatibility/RUNBOOK.md). Historical Codex 0.1.0 / rc.4 evidence is retained, not transferred to this revision.
+October Bus ships configuration candidates for 27 MCP hosts, a native Pi extension, and a managed-launch path for October Harness's existing native integration. Configuration count is **not** a verified-support count: adapter revision 0.2.0 is experimental until each released host completes the [runbook](../compatibility/RUNBOOK.md). Historical Codex 0.1.0 / rc.4 evidence is retained, not transferred to this revision.
 
 ## Local setup
 
@@ -33,7 +33,7 @@ The bridge owns heartbeats and retirement on EOF, host termination or lease fail
 | Surface | Configuration candidates |
 | --- | --- |
 | Initial launch wave | [Codex](codex), [Claude Code](claude-code), [Cursor](cursor), [OpenCode](opencode), [Gemini CLI](gemini-cli), [Copilot CLI](copilot-cli) |
-| Other MCP hosts | [Amp](amp), [Antigravity](antigravity), [Auggie](auggie), [Autohand](autohand), [Cline](cline), [Continue](continue), [Crush](crush), [Factory Droid](factory-droid), [Freebuff CLI](freebuff), [Goose](goose), [Hermes](hermes), [Kilo Code](kilo-code), [Kimchi](kimchi), [Kimi Code](kimi-code), [Kiro](kiro), [Mistral Vibe](mistral-vibe), [OMP](omp), [Prime Agent](prime-agent), [Qwen Code](qwen-code) |
+| Other MCP hosts | [Amp](amp), [Antigravity](antigravity), [Auggie](auggie), [Autohand](autohand), [Cline](cline), [Continue](continue), [Crush](crush), [Factory Droid](factory-droid), [Freebuff CLI](freebuff), [Goose](goose), [Grok](grok), [Hermes](hermes), [Kilo Code](kilo-code), [Kimchi](kimchi), [Kimi Code](kimi-code), [Kiro](kiro), [Mistral Vibe](mistral-vibe), [OMP](omp), [Prime Agent](prime-agent), [Qwen Code](qwen-code) |
 | Sandbox-colocated MCP | [Devin](devin): generate paths inside its managed sandbox; remote exposure is not included |
 | Native session extension | [Pi](pi): public session hooks, daemon tool schemas, cancellation and cleanup |
 | Existing native integration | [October Harness](october-harness): public launcher contract, no duplicate extension |

@@ -29,7 +29,7 @@ This supports colocated collaboration only. Connecting a remote host to a laptop
 | Target | Missing boundary / next evidence |
 | --- | --- |
 | Aider (#47) | [Scripting documentation](https://aider.chat/docs/scripting.html) establishes programmatic prompting, not a demonstrated full external-tool lifecycle. A prompt/terminal-text wrapper does not satisfy the Bus adapter contract. |
-| Grok (#30), DeepSeek (#41) | Identify a concrete released harness, or treat these as provider variations inside another host. Model APIs alone do not consume Bus work. |
+| DeepSeek (#41) | Identify a concrete released harness, or treat it as a provider variation inside another host. Model APIs alone do not consume Bus work. Grok (#30) moved to a configuration candidate via the Grok Build CLI's MCP client. |
 | Muse Code (#32) | Meta's [developer portal](https://dev.meta.ai/) requires login. Obtain accessible vendor documentation for external tools and session ownership; a skills folder or similarly named community MCP server does not establish that boundary. |
 
-For each unresolved target, supply the exact product/version, public tool/session hook, account/permission requirements and maintainer. Then implement the smallest shared-bridge or native shim and run the same independent-host evidence process. These four targets remain blocked, not silently counted as supported or marked complete. All 28 existing candidate paths still require released-host evidence and maintenance ownership.
+For each unresolved target, supply the exact product/version, public tool/session hook, account/permission requirements and maintainer. Then implement the smallest shared-bridge or native shim and run the same independent-host evidence process. These three targets remain blocked, not silently counted as supported or marked complete. All 29 existing candidate paths still require released-host evidence and maintenance ownership.
