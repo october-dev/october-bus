@@ -38,6 +38,9 @@ Usage:
   october-bus scope import --input <path> [--address <addr>]
   october-bus scope storage [--json] [--address <addr>]
   october-bus scope prune --before <timestamp> [--yes] [--json] [--address <addr>]
+  october-bus watch --scope <scope-id> [--agent <id>] [--type <prefix>] [--from <rev>] [--once]
+  october-bus inbox inject --scope <scope-id> --agent <id> [--name <display>] [--wait <ms>] [--ack] [--json]
+  october-bus message send --scope <scope-id> --agent <id> --to <peer> [--body <text> | --stdin] [--mode notify|request|response] [--reply-to <id>]
   october-bus message receipt <message-id> [--json] [--address <addr>]
   october-bus agent list [--json] [--address <addr>]
   october-bus link --scope <scope-id> <agent-a> <agent-b>
@@ -1025,9 +1028,18 @@ func run() error {
 		}
 	case "backup":
 		return backupDatabase(args[1:])
+	case "watch":
+		return runWatch(args[1:])
+	case "inbox":
+		if len(args) >= 2 && args[1] == "inject" {
+			return runInboxInject(args[2:])
+		}
 	case "message":
 		if len(args) >= 2 && args[1] == "receipt" {
 			return inspectReceipt(args[2:])
+		}
+		if len(args) >= 2 && args[1] == "send" {
+			return runMessageSend(args[2:])
 		}
 	case "agent":
 		if len(args) >= 2 && args[1] == "run" {
