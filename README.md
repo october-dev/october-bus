@@ -249,6 +249,33 @@ Scope owners can follow ordered events for registrations, messages, task changes
 
 Clients resume from an event revision. If retention has removed the required history, the Bus signals that the client must rebuild its view from the resource APIs. See the [event contract](spec/0.1/README.md#scope-events).
 
+### Watching from a shell
+
+The CLI exposes the same surfaces for terminals and harness hooks — no MCP
+required:
+
+```bash
+# Live event stream (NDJSON, resumes from the revision cursor):
+october-bus watch --scope my-project                      # all scope events
+october-bus watch --scope my-project --agent reviewer     # events naming one agent
+october-bus watch --scope my-project --type message. --once --from 0
+
+# Drain an agent inbox as prompt-ready text for a hook or pane:
+october-bus inbox inject --scope my-project --agent reviewer --ack
+
+# Send a durable peer message without MCP:
+october-bus message send --scope my-project --agent builder --to reviewer \
+  --body "retry path is ready for review"
+```
+
+`watch` consumes the existing long-poll endpoint — the daemon wakes waiters
+when an event lands, so stream latency is effectively push without a second
+protocol surface. `inbox inject` and `message send` use managed agent
+credentials when present (`agent run`, MCP) or self-register a short session
+from `--scope`/`--agent` otherwise. Together they let two agents trade
+requests and replies in near-real-time while each harness keeps its own
+approval rules — peer messages remain untrusted input.
+
 ### Identity and lifecycle
 
 A logical agent identity is not enough to act. The runtime checks the current execution token and lease. Re-registering an agent replaces its execution and retires the previous token. Task claims belong to that execution. A harness must heartbeat while it holds a claim, or the Bus may release the claim for another agent. Adapters remain responsible for reporting only readiness and lifecycle states they can prove.
