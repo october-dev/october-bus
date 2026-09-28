@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -268,10 +269,87 @@ func TestMCPStdioManagedConnectionDoesNotReplayLostMutation(t *testing.T) {
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 	requireNoError(t, err)
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "message_peer", Arguments: map[string]any{"peer": "receiver", "message": "accepted once"}})
+	send := map[string]any{"peer": "receiver", "message": "accepted once", "idempotencyKey": "lost-reply-1"}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "message_peer", Arguments: send})
 	require(t, err != nil || result.IsError, "lost response reported success")
 	callMCPBridgeTool(t, ctx, session, "list_peers", map[string]any{})
 	require(t, mutations.Load() == 1, "replayed mutation while reconnecting")
+	// Only the caller may resolve the unknown outcome, by retrying the same logical send.
+	retry := callMCPBridgeTool(t, ctx, session, "message_peer", send)
+	receipt, _ := retry.StructuredContent.(map[string]any)
+	messageID, _ := receipt["messageId"].(string)
+	require(t, messageID != "" && mutations.Load() == 2, "explicit retry did not return a receipt: %#v", retry.StructuredContent)
 	messages, err := (bus.Client{Address: address, Token: receiverToken}).PullInbox(ctx, 10, 0)
-	require(t, err == nil && len(messages) == 1 && messages[0].Body == "accepted once", "lost response duplicated or dropped committed message")
+	require(t, err == nil && len(messages) == 1 && messages[0].Body == "accepted once" && messages[0].ID == messageID, "lost response duplicated or dropped committed message")
+}
+
+// The helper forwards fields an upstream authority defines, not only the
+// daemon's own tool set. This proves transport only: an echo authority says
+// nothing about what the fields mean or who is allowed to send them.
+func TestMCPStdioManagedConnectionForwardsAuthorityDefinedFields(t *testing.T) {
+	path, connection := connectionFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var received atomic.Pointer[json.RawMessage]
+	authority := mcp.NewServer(&mcp.Implementation{Name: "fixture-authority", Version: "1"}, nil)
+	authority.AddTool(&mcp.Tool{
+		Name: "record_outcome", Description: "authority-defined tool",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []any{"target", "metadata"},
+			"properties": map[string]any{
+				"target":   map[string]any{"type": "string"},
+				"metadata": map[string]any{"type": "object", "additionalProperties": true},
+			},
+		},
+	}, func(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		arguments := append(json.RawMessage(nil), request.Params.Arguments...)
+		received.Store(&arguments)
+		return &mcp.CallToolResult{StructuredContent: arguments, Content: []mcp.Content{&mcp.TextContent{Text: string(arguments)}}}, nil
+	})
+	server := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return authority }, &mcp.StreamableHTTPOptions{
+		Stateless: true, JSONResponse: true,
+	}))
+	defer server.Close()
+	connection.Endpoint = server.URL + "/mcp"
+	saveTestConnection(t, path, connection)
+	session, stderr := managedBridge(t, ctx, path)
+	defer session.Close()
+
+	requireSameJSON := func(label string, want, got any) {
+		t.Helper()
+		var wantValue, gotValue any
+		wantJSON, err := json.Marshal(want)
+		requireNoError(t, err)
+		gotJSON, err := json.Marshal(got)
+		requireNoError(t, err)
+		requireNoError(t, json.Unmarshal(wantJSON, &wantValue))
+		requireNoError(t, json.Unmarshal(gotJSON, &gotValue))
+		require(t, reflect.DeepEqual(wantValue, gotValue), "%s changed in transit\nwant: %s\ngot:  %s", label, wantJSON, gotJSON)
+	}
+	direct, err := mcp.NewClient(&mcp.Implementation{Name: "direct-authority-test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp", DisableStandaloneSSE: true}, nil)
+	requireNoError(t, err)
+	defer direct.Close()
+	directTools, err := direct.ListTools(ctx, nil)
+	requireNoError(t, err)
+	forwardedTools, err := session.ListTools(ctx, nil)
+	require(t, err == nil && len(forwardedTools.Tools) == 1, "unexpected forwarded tools: %#v, %v; %s", forwardedTools, err, stderr.String())
+	requireSameJSON("tool definition", directTools.Tools, forwardedTools.Tools)
+
+	arguments := map[string]any{
+		"target": "recipient-7",
+		"metadata": map[string]any{
+			"correlationId": "correlation-7",
+			"attempt":       map[string]any{"id": "attempt-2", "sequence": 2},
+			"labels":        []any{"a", "b"},
+			"encoded":       `{"stays":"a string"}`,
+			"absent":        nil,
+			"ratio":         1.5,
+		},
+	}
+	result := callMCPBridgeTool(t, ctx, session, "record_outcome", arguments)
+	upstream := received.Load()
+	require(t, upstream != nil, "authority never received the call")
+	requireSameJSON("arguments", arguments, *upstream)
+	requireSameJSON("result", arguments, result.StructuredContent)
 }

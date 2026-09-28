@@ -33,7 +33,8 @@ credential. This is transport and lifecycle support for an already authorized
 endpoint, not automatic remote enrollment or a second daemon. The host/controller
 still owns physical execution evidence, safe input delivery and the network route;
 the [Desktop integration contract](desktop-remote-integration.md) lists what
-remains on that side.
+remains on that side. The [portable contract verification](portable-contract-verification-2026-09.md)
+maps offline and remote-forwarding requirements to this boundary.
 
 ## Targets that cannot yet be implemented honestly
 

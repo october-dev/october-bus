@@ -525,6 +525,49 @@ func TestSQLitePreservesAcceptedWorkAcrossRestart(t *testing.T) {
 	require(t, err == nil && reservation != nil && reservation.Messages[0].ID == receipt.MessageID, "message did not survive restart: %#v, %v", reservation, err)
 }
 
+func TestColdRestartPreservesIdempotencyAndRedelivery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bus.db")
+	agents := setupAgents(t, path)
+	ctx := context.Background()
+	input := SendMessageInput{To: "reviewer", Mode: MessageRequest, Body: "Survive restart", IdempotencyKey: "restart-42"}
+	sent, err := agents.runtime.SendMessage(ctx, agents.plannerToken, input)
+	requireNoError(t, err)
+	reservation, err := agents.runtime.ReserveInbox(ctx, agents.reviewerToken, 10, 0)
+	require(t, err == nil && reservation != nil && len(reservation.Messages) == 1, "unexpected reservation: %#v, %v", reservation, err)
+	delivered, err := agents.runtime.CommitInbox(ctx, agents.reviewerToken, reservation.ID)
+	require(t, err == nil && len(delivered) == 1 && delivered[0].DeliveredAt != "", "unexpected delivery: %#v, %v", delivered, err)
+	firstDeliveredAt := delivered[0].DeliveredAt
+	requireNoError(t, agents.runtime.Close())
+
+	restarted, err := Open(path)
+	requireNoError(t, err)
+	defer restarted.Close()
+	planner, err := restarted.RegisterAgent(ctx, agents.scope.ScopeToken, RegisterAgentInput{ID: "planner", DisplayName: "Planner"})
+	requireNoError(t, err)
+	reviewer, err := restarted.RegisterAgent(ctx, agents.scope.ScopeToken, RegisterAgentInput{ID: "reviewer", DisplayName: "Reviewer", ConnectTo: []string{"planner"}})
+	requireNoError(t, err)
+	require(t, planner.ExecutionID != agents.planner.ExecutionID && reviewer.ExecutionID != agents.reviewer.ExecutionID, "restart registration did not create new executions")
+
+	retry, err := restarted.SendMessage(ctx, planner.AgentToken, input)
+	require(t, err == nil && retry.MessageID == sent.MessageID && retry.AcceptedAt == sent.AcceptedAt, "retry after restart did not return the original receipt: %#v, %v", retry, err)
+	changed := input
+	changed.Body = "Changed after restart"
+	_, err = restarted.SendMessage(ctx, planner.AgentToken, changed)
+	requireCode(t, err, CodeConflict)
+
+	redelivery, err := restarted.ReserveInbox(ctx, reviewer.AgentToken, 10, 0)
+	require(t, err == nil && redelivery != nil && len(redelivery.Messages) == 1 && redelivery.Messages[0].ID == sent.MessageID, "unacknowledged message was not redelivered once: %#v, %v", redelivery, err)
+	recommitted, err := restarted.CommitInbox(ctx, reviewer.AgentToken, redelivery.ID)
+	require(t, err == nil && len(recommitted) == 1 && recommitted[0].DeliveredAt == firstDeliveredAt && recommitted[0].CreatedAt == sent.AcceptedAt, "redelivery rewrote delivery history: %#v, %v", recommitted, err)
+
+	count, err := restarted.AcknowledgeMessages(ctx, reviewer.AgentToken, []string{sent.MessageID})
+	require(t, err == nil && count == 1, "unexpected acknowledgement: %d, %v", count, err)
+	count, err = restarted.AcknowledgeMessages(ctx, reviewer.AgentToken, []string{sent.MessageID})
+	require(t, err == nil && count == 0, "repeated acknowledgement was not a no-op: %d, %v", count, err)
+	receipt, err := restarted.Receipt(ctx, planner.AgentToken, sent.MessageID)
+	require(t, err == nil && receipt.State == DeliveryAcknowledged && receipt.DeliveredAt == firstDeliveredAt, "unexpected receipt: %#v, %v", receipt, err)
+}
+
 func TestOlderSchemaFailsBeforeServingWork(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 	database, err := sql.Open("sqlite", path)

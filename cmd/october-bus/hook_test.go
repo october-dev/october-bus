@@ -155,6 +155,30 @@ func TestHookCodexPrePromptUsesEnvelope(t *testing.T) {
 	require(t, len(requests) == 4, "codex pull was not acknowledged: %v", routes(requests))
 }
 
+// brokenStdout accepts part of the injection and then fails, as a closed or
+// full pipe to the harness would.
+type brokenStdout struct{ written bytes.Buffer }
+
+func (stdout *brokenStdout) Write(p []byte) (int, error) {
+	n := min(len(p), 8)
+	stdout.written.Write(p[:n])
+	return n, io.ErrShortWrite
+}
+
+func TestHookDoesNotAcknowledgeWhenStdoutRejectsInjection(t *testing.T) {
+	path, _, controller := hookFixture(t)
+	for _, flavor := range []string{"claude", "codex"} {
+		stdin := strings.NewReader(`{"session_id":"s-1"}`)
+		stdout, stderr := new(brokenStdout), new(bytes.Buffer)
+		runHook([]string{"--connection-file", path, "pre-prompt", flavor}, stdin, false, stdout, stderr)
+		require(t, stdout.written.Len() > 0, "%s hook never attempted the handoff", flavor)
+		// A failed native handoff is not acknowledged, so the controller keeps the
+		// staged context and receipt for a later turn.
+		requests := controller.reset()
+		require(t, strings.Join(routes(requests), ",") == "POST /hook/notify,GET /hook/pre-prompt", "%s hook acknowledged a failed handoff: %v", flavor, routes(requests))
+	}
+}
+
 func TestHookSessionLifecycle(t *testing.T) {
 	path, _, controller := hookFixture(t)
 	stdout, _ := invokeHook(t, path, map[string]any{"session_id": "claude-session", "transcript_path": "/home/u/.claude/projects/x/claude-session.jsonl", "cwd": "/work"}, "session-start")
